@@ -1,7 +1,8 @@
 mod drand;
 mod format;
 
-use std::process;
+use sha2::{Digest, Sha256};
+use std::{fs, process};
 
 use format::Output;
 
@@ -10,12 +11,17 @@ struct Config {
     round: Option<u64>,
     output: Output,
     options: Vec<String>,
+    input_hash: Option<String>,
+    file: Option<String>,
+    delimiter: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut round: Option<u64> = None;
     let mut output = Output::Human;
     let mut options: Vec<String> = Vec::new();
+    let mut file: Option<String> = None;
+    let mut delimiter: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -24,6 +30,14 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 i += 1;
                 let val = args.get(i).ok_or("--round requires a value")?;
                 round = Some(val.parse().map_err(|_| "invalid round number")?);
+            }
+            "--file" | "-f" => {
+                i += 1;
+                file = Some(args.get(i).ok_or("--file requires a path")?.clone());
+            }
+            "--delimiter" | "-d" => {
+                i += 1;
+                delimiter = Some(args.get(i).ok_or("--delimiter requires a value")?.clone());
             }
             "--json" => output = Output::Json,
             "--tsv" => output = Output::Tsv,
@@ -37,11 +51,23 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         i += 1;
     }
 
+    let input_hash = if let Some(ref path) = file {
+        let contents = fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let hash = hex_sha256(&contents);
+        let text = String::from_utf8(contents)
+            .map_err(|e| format!("file is not valid UTF-8: {e}"))?;
+        let delim = delimiter.as_deref().unwrap_or("\n");
+        options = text.split(delim).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        Some(hash)
+    } else {
+        None
+    };
+
     if options.len() < 2 {
         return Err("at least 2 options required".to_string());
     }
 
-    Ok(Config { round, output, options })
+    Ok(Config { round, output, options, input_hash, file, delimiter })
 }
 
 /// Derive a selection index from hex randomness and option count.
@@ -52,6 +78,12 @@ pub fn select(randomness: &str, count: usize) -> Result<usize, String> {
     let val = u32::from_str_radix(&randomness[..8], 16)
         .map_err(|e| format!("invalid randomness hex: {e}"))?;
     Ok(val as usize % count)
+}
+
+pub fn hex_sha256(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
 }
 
 fn main() {
@@ -84,6 +116,9 @@ fn main() {
         index,
         winner: &config.options[index],
         options: &config.options,
+        input_hash: config.input_hash.as_deref(),
+        file: config.file.as_deref(),
+        delimiter: config.delimiter.as_deref(),
     };
 
     format::render(&result, &config.output);
@@ -95,15 +130,12 @@ mod tests {
 
     #[test]
     fn select_deterministic() {
-        // 0x3b26244e = 992_478_286; 992_478_286 % 3 = 1
         assert_eq!(select("3b26244efd679a692b8bff80fb16b74f", 3).unwrap(), 1);
     }
 
     #[test]
     fn select_two_options() {
-        // 0xffffffff = 4_294_967_295; 4_294_967_295 % 2 = 1
         assert_eq!(select("ffffffff0000000000000000", 2).unwrap(), 1);
-        // 0x00000000 = 0; 0 % 2 = 0
         assert_eq!(select("000000000000000000000000", 2).unwrap(), 0);
     }
 
@@ -123,6 +155,7 @@ mod tests {
         let config = parse_args(&args).unwrap();
         assert_eq!(config.options, vec!["Alice", "Bob"]);
         assert!(config.round.is_none());
+        assert!(config.input_hash.is_none());
     }
 
     #[test]
@@ -150,6 +183,39 @@ mod tests {
     fn parse_args_round_missing_value() {
         let args: Vec<String> = vec!["A", "B", "--round"].into_iter().map(String::from).collect();
         assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn parse_args_file() {
+        let tmp = std::env::temp_dir().join("alea_test_input.txt");
+        fs::write(&tmp, "Alice\nBob\nCharlie\n").unwrap();
+        let args: Vec<String> = vec!["--file", tmp.to_str().unwrap()]
+            .into_iter().map(String::from).collect();
+        let config = parse_args(&args).unwrap();
+        assert_eq!(config.options, vec!["Alice", "Bob", "Charlie"]);
+        assert!(config.input_hash.is_some());
+        assert_eq!(config.input_hash.unwrap().len(), 64);
+        fs::remove_file(tmp).ok();
+    }
+
+    #[test]
+    fn parse_args_file_with_delimiter() {
+        let tmp = std::env::temp_dir().join("alea_test_delim.txt");
+        fs::write(&tmp, "Alice,Bob,Charlie").unwrap();
+        let args: Vec<String> = vec!["--file", tmp.to_str().unwrap(), "-d", ","]
+            .into_iter().map(String::from).collect();
+        let config = parse_args(&args).unwrap();
+        assert_eq!(config.options, vec!["Alice", "Bob", "Charlie"]);
+        fs::remove_file(tmp).ok();
+    }
+
+    #[test]
+    fn hex_sha256_known() {
+        // SHA-256 of empty string
+        assert_eq!(
+            hex_sha256(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     #[test]
