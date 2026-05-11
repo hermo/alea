@@ -25,7 +25,7 @@ pub struct SelectionResult<'a> {
 }
 
 pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
-    let timestamp = epoch_to_iso((drand::GENESIS_TIME + r.round * drand::PERIOD) as i64);
+    let timestamp = round_to_iso(r.round);
 
     match output {
         Output::Human => {
@@ -35,7 +35,7 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
                 print_header(r, &timestamp);
                 println!();
                 println!("verify:");
-                println!("  alea --round {} {}", r.round, verify_args(r));
+                println!("  alea --round {} {}", r.round, verify_args(r.file, r.delimiter, r.options));
             }
         }
         Output::All => {
@@ -44,7 +44,7 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
                 println!();
             }
             println!("verify (alea):");
-            println!("  alea --round {} {}", r.round, verify_args(r));
+            println!("  alea --round {} {}", r.round, verify_args(r.file, r.delimiter, r.options));
             println!();
             println!("verify (bash/zsh):");
             print_indented(&oneliner_sh(r));
@@ -122,6 +122,38 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
     }
 }
 
+pub fn render_scheduled(
+    round: &u64,
+    options: &[String],
+    input_hash: Option<&str>,
+    file: Option<&str>,
+    delimiter: Option<&str>,
+    quiet: bool,
+) {
+    let timestamp = round_to_iso(*round);
+    let args = verify_args(file, delimiter, options);
+
+    if quiet {
+        println!("alea --round {round} {args}");
+    } else {
+        println!("Scheduled alea run:");
+        println!();
+        println!("round: {round}");
+        println!("time:  {timestamp}");
+        if let Some(hash) = input_hash {
+            println!("input: sha256:{hash}");
+        }
+        println!("count: {} options", options.len());
+        println!();
+        println!("run at the scheduled time:");
+        println!("  alea --round {round} {args}");
+    }
+}
+
+fn round_to_iso(round: u64) -> String {
+    epoch_to_iso((drand::GENESIS_TIME + round * drand::PERIOD) as i64)
+}
+
 fn print_indented(s: &str) {
     for line in s.lines() {
         println!("  {line}");
@@ -129,7 +161,7 @@ fn print_indented(s: &str) {
 }
 
 fn print_header(r: &SelectionResult, timestamp: &str) {
-    println!("🎲 {}", r.winner);
+    println!("\u{1f3b2} {}", r.winner);
     println!();
     println!("round: {}", r.round);
     println!("time:  {timestamp}");
@@ -138,19 +170,19 @@ fn print_header(r: &SelectionResult, timestamp: &str) {
     }
 }
 
-fn verify_args(r: &SelectionResult) -> String {
-    if let Some(file) = r.file {
-        let basename = std::path::Path::new(file)
+fn verify_args(file: Option<&str>, delimiter: Option<&str>, options: &[String]) -> String {
+    if let Some(f) = file {
+        let basename = std::path::Path::new(f)
             .file_name()
-            .map(|f| f.to_string_lossy().into_owned())
-            .unwrap_or_else(|| file.to_string());
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| f.to_string());
         let mut s = format!("--file {}", shell_quote(&basename));
-        if let Some(d) = r.delimiter {
+        if let Some(d) = delimiter {
             s.push_str(&format!(" --delimiter {}", shell_quote(d)));
         }
         s
     } else {
-        quote_all(r.options, shell_quote)
+        quote_all(options, shell_quote)
     }
 }
 
@@ -161,7 +193,7 @@ fn sanitize_comment(s: &str) -> String {
 fn oneliner_comment(r: &SelectionResult) -> String {
     format!(
         "# alea {} --round {} => {}",
-        sanitize_comment(&verify_args(r)),
+        sanitize_comment(&verify_args(r.file, r.delimiter, r.options)),
         r.round,
         sanitize_comment(r.winner)
     )
@@ -213,10 +245,8 @@ pub fn print_usage() {
     eprintln!("  --at <TIMESTAMP>  Calculate round for a future time (ISO 8601)");
     eprintln!("  -f, --file <path> Read options from a file");
     eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
-    eprintln!(
-        "  -q, --quiet       Print only the result, no headers or labels
-  --all             Show all verification methods"
-    );
+    eprintln!("  -q, --quiet       Print only the result, no headers or labels");
+    eprintln!("  --all             Show all verification methods");
     eprintln!("  --json            Machine-readable JSON output");
     eprintln!("  --tsv             Tab-separated key/value output (grep/awk/cut friendly)");
     eprintln!("  --sh              Output bash/zsh verification oneliner");
@@ -248,26 +278,91 @@ fn ps_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+// --- Time utilities ---
+
+/// Parse ISO 8601 timestamp (with timezone offset or Z) to unix epoch seconds.
+pub fn parse_iso8601(s: &str) -> Result<u64, String> {
+    let err =
+        || format!("invalid timestamp: {s} (expected ISO 8601, e.g. 2026-07-22T12:00:00+03:00)");
+
+    let (datetime_str, offset_secs) = if let Some(stripped) = s.strip_suffix('Z') {
+        (stripped, 0i64)
+    } else if s.len() >= 6
+        && (s.as_bytes()[s.len() - 6] == b'+' || s.as_bytes()[s.len() - 6] == b'-')
+    {
+        let (dt, tz) = s.split_at(s.len() - 6);
+        let sign: i64 = if tz.starts_with('-') { -1 } else { 1 };
+        let h: i64 = tz[1..3].parse().map_err(|_| err())?;
+        let m: i64 = tz[4..6].parse().map_err(|_| err())?;
+        (dt, sign * (h * 3600 + m * 60))
+    } else {
+        return Err(err());
+    };
+
+    let parts: Vec<&str> = datetime_str.split('T').collect();
+    if parts.len() != 2 {
+        return Err(err());
+    }
+    let date_parts: Vec<u64> = parts[0]
+        .split('-')
+        .map(|p| p.parse().unwrap_or(0))
+        .collect();
+    let time_parts: Vec<u64> = parts[1]
+        .split(':')
+        .map(|p| p.parse().unwrap_or(0))
+        .collect();
+    if date_parts.len() != 3 || time_parts.len() != 3 {
+        return Err(err());
+    }
+
+    let (year, month, day) = (date_parts[0] as i64, date_parts[1], date_parts[2]);
+    let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
+
+    let mut days: i64 = 0;
+    for y in 1970..year {
+        days += if is_leap(y) { 366 } else { 365 };
+    }
+    for d in &month_days(is_leap(year))[..month as usize - 1] {
+        days += *d as i64;
+    }
+    days += (day as i64) - 1;
+
+    let epoch =
+        days * 86400 + (hour as i64) * 3600 + (min as i64) * 60 + (sec as i64) - offset_secs;
+    Ok(epoch as u64)
+}
+
 pub fn epoch_to_iso(epoch: i64) -> String {
     let days = epoch / 86400;
     let rem = epoch % 86400;
     let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
     let mut y = 1970i64;
     let mut d = days;
     loop {
-        let yd = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
-            366
-        } else {
-            365
-        };
+        let yd = if is_leap(y) { 366 } else { 365 };
         if d < yd {
             break;
         }
         d -= yd;
         y += 1;
     }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let mdays = [
+
+    let mdays = month_days(is_leap(y));
+    let mut mo = 0usize;
+    while mo < 12 && d >= mdays[mo] as i64 {
+        d -= mdays[mo] as i64;
+        mo += 1;
+    }
+    format!("{y:04}-{:02}-{:02}T{h:02}:{m:02}:{s:02}Z", mo + 1, d + 1)
+}
+
+fn is_leap(y: i64) -> bool {
+    y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
+}
+
+fn month_days(leap: bool) -> [u8; 12] {
+    [
         31,
         if leap { 29 } else { 28 },
         31,
@@ -280,11 +375,5 @@ pub fn epoch_to_iso(epoch: i64) -> String {
         31,
         30,
         31,
-    ];
-    let mut mo = 0usize;
-    while mo < 12 && d >= mdays[mo] {
-        d -= mdays[mo];
-        mo += 1;
-    }
-    format!("{y:04}-{:02}-{:02}T{h:02}:{m:02}:{s:02}Z", mo + 1, d + 1)
+    ]
 }
