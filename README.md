@@ -36,23 +36,23 @@ cargo install --path .
 ## Usage
 
 ```sh
-# Pick lunch
 alea pizza sushi tacos ramen
+```
 
-# The output includes a verification command
+```
 🎲 tacos
 
-round: 6102380
-time:  2026-05-11T12:27:30Z
+round: 6100001
+time:  2026-05-10T16:38:00Z
 
 verify:
-  alea --round 6102380 pizza sushi tacos ramen
+  alea --round 6100001 pizza sushi tacos ramen
 ```
 
 ### Verify a past result
 
 ```sh
-alea --round 6102380 pizza sushi tacos ramen
+alea --round 6100001 pizza sushi tacos ramen
 ```
 
 Same round + same options = same result. Always. Anyone can check.
@@ -66,6 +66,18 @@ alea --file menu.csv --delimiter ","
 
 When using `--file`, the output includes a SHA-256 hash of the input file so you can prove the options weren't modified after the fact.
 
+### Quiet mode
+
+Print only the winner, no headers or labels — useful for scripting:
+
+```sh
+alea --quiet pizza sushi tacos
+```
+
+```
+pizza
+```
+
 ### Machine-readable output
 
 ```sh
@@ -78,25 +90,29 @@ alea --tsv pizza sushi tacos | grep '^winner' | cut -f2
 
 ### Verification oneliners
 
-Don't have `alea` installed? Get a self-contained verification command:
+Don't have `alea` installed? Each output mode includes a self-contained verification command that only needs `curl`:
 
 ```sh
-# bash/zsh
 alea --sh pizza sushi tacos
-
-# fish
-alea --fish pizza sushi tacos
-
-# PowerShell
-alea --ps pizza sushi tacos
 ```
 
-These output a single command that only needs `curl` (or `Invoke-RestMethod`) to verify the result independently.
+```
+🎲 pizza
 
-### Show all verification methods at once
+round: 6100003
+time:  2026-05-10T16:39:00Z
+
+verify (bash/zsh):
+  # alea pizza sushi tacos --round 6100003 => pizza
+  opts=(pizza sushi tacos); r=$(curl -s https://api.drand.sh/public/6100003 | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${r:0:8}"); echo "${opts[$((i % ${#opts[@]}))]}"
+```
+
+Use `--fish` or `--ps` for the equivalent fish or PowerShell command. Use `--all` to show all variants at once.
+
+Pass `--quiet` to get only the raw oneliner with no headers, ready to pipe or run directly:
 
 ```sh
-alea --all pizza sushi tacos
+alea --sh --quiet pizza sushi tacos | bash
 ```
 
 ## How it works
@@ -115,16 +131,18 @@ Usage: alea [OPTIONS] <option1> <option2> [option3...]
        alea [OPTIONS] --file <path> [--delimiter <delim>]
 
 Options:
-  --round <N>       Use a specific drand round (for verification)
-  -f, --file <path> Read options from a file
+  --round <N>           Use a specific drand round (for verification)
+  -f, --file <path>     Read options from a file
   -d, --delimiter <str> Split file by delimiter (default: newline)
-  --all             Show all verification methods
-  --json            Machine-readable JSON output
-  --tsv             Tab-separated key/value output (grep/awk/cut friendly)
-  --sh              Output bash/zsh verification oneliner
-  --fish            Output fish verification oneliner
-  --ps              Output PowerShell verification oneliner
-  -h, --help        Show this help
+  -q, --quiet           Print only the result, no headers or labels
+  --all                 Show all verification methods
+  --json                Machine-readable JSON output
+  --tsv                 Tab-separated key/value output (grep/awk/cut friendly)
+  --sh                  Output bash/zsh verification oneliner
+  --fish                Output fish verification oneliner
+  --ps                  Output PowerShell verification oneliner
+  -V, --version         Show version
+  -h, --help            Show this help
 ```
 
 ## License
