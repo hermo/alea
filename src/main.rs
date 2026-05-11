@@ -15,6 +15,7 @@ struct Config {
     file: Option<String>,
     delimiter: Option<String>,
     quiet: bool,
+    at_mode: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<Config, String> {
@@ -24,6 +25,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut file: Option<String> = None;
     let mut delimiter: Option<String> = None;
     let mut quiet = false;
+    let mut at: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -42,6 +44,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 delimiter = Some(args.get(i).ok_or("--delimiter requires a value")?.clone());
             }
             "--quiet" | "-q" => quiet = true,
+            "--at" => {
+                i += 1;
+                at = Some(args.get(i).ok_or("--at requires a timestamp")?.clone());
+            }
             "--json" => output = Output::Json,
             "--tsv" => output = Output::Tsv,
             "--sh" => output = Output::Sh,
@@ -86,6 +92,18 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         );
     }
 
+    if at.is_some() && round.is_some() {
+        return Err("--at and --round cannot be used together".to_string());
+    }
+
+    if let Some(ref ts) = at {
+        let epoch = parse_iso8601(ts)?;
+        if epoch <= drand::GENESIS_TIME {
+            return Err("--at timestamp is before drand genesis".to_string());
+        }
+        round = Some((epoch - drand::GENESIS_TIME) / drand::PERIOD);
+    }
+
     Ok(Config {
         round,
         output,
@@ -94,6 +112,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         file,
         delimiter,
         quiet,
+        at_mode: at.is_some(),
     })
 }
 
@@ -113,6 +132,80 @@ pub fn hex_sha256(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Parse ISO 8601 timestamp (with timezone offset or Z) to unix epoch seconds.
+fn parse_iso8601(s: &str) -> Result<u64, String> {
+    // Supports: 2026-07-22T12:00:00Z, 2026-07-22T12:00:00+03:00, 2026-07-22T12:00:00-05:00
+    let err =
+        || format!("invalid timestamp: {s} (expected ISO 8601, e.g. 2026-07-22T12:00:00+03:00)");
+
+    let (datetime_str, offset_secs) = if let Some(stripped) = s.strip_suffix('Z') {
+        (stripped, 0i64)
+    } else if s.len() >= 6
+        && (s.as_bytes()[s.len() - 6] == b'+' || s.as_bytes()[s.len() - 6] == b'-')
+    {
+        let (dt, tz) = s.split_at(s.len() - 6);
+        let sign: i64 = if tz.starts_with('-') { -1 } else { 1 };
+        let h: i64 = tz[1..3].parse().map_err(|_| err())?;
+        let m: i64 = tz[4..6].parse().map_err(|_| err())?;
+        (dt, sign * (h * 3600 + m * 60))
+    } else {
+        return Err(err());
+    };
+
+    // Parse datetime: 2026-07-22T12:00:00
+    let parts: Vec<&str> = datetime_str.split('T').collect();
+    if parts.len() != 2 {
+        return Err(err());
+    }
+    let date_parts: Vec<u64> = parts[0]
+        .split('-')
+        .map(|p| p.parse().unwrap_or(0))
+        .collect();
+    let time_parts: Vec<u64> = parts[1]
+        .split(':')
+        .map(|p| p.parse().unwrap_or(0))
+        .collect();
+    if date_parts.len() != 3 || time_parts.len() != 3 {
+        return Err(err());
+    }
+
+    let (year, month, day) = (date_parts[0] as i64, date_parts[1], date_parts[2]);
+    let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
+
+    // Days from epoch to start of year
+    let mut days: i64 = 0;
+    for y in 1970..year {
+        days += if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
+            366
+        } else {
+            365
+        };
+    }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let mdays: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    for d in &mdays[..month as usize - 1] {
+        days += d;
+    }
+    days += (day as i64) - 1;
+
+    let epoch =
+        days * 86400 + (hour as i64) * 3600 + (min as i64) * 60 + (sec as i64) - offset_secs;
+    Ok(epoch as u64)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
@@ -126,6 +219,46 @@ fn main() {
         format::print_usage();
         process::exit(2);
     });
+
+    if config.at_mode {
+        let round = config.round.unwrap();
+        let timestamp = format::epoch_to_iso((drand::GENESIS_TIME + round * drand::PERIOD) as i64);
+        let verify_args = if let Some(ref file) = config.file {
+            let basename = std::path::Path::new(file.as_str())
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.clone());
+            let mut s = format!("--file {}", format::shell_quote(&basename));
+            if let Some(ref d) = config.delimiter {
+                s.push_str(&format!(" --delimiter {}", format::shell_quote(d)));
+            }
+            s
+        } else {
+            config
+                .options
+                .iter()
+                .map(|o| format::shell_quote(o))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        if config.quiet {
+            println!("alea --round {round} {verify_args}");
+        } else {
+            println!("Scheduled alea run:");
+            println!();
+            println!("round: {round}");
+            println!("time:  {timestamp}");
+            if let Some(ref hash) = config.input_hash {
+                println!("input: sha256:{hash}");
+            }
+            println!("count: {} options", config.options.len());
+            println!();
+            println!("run at the scheduled time:");
+            println!("  alea --round {round} {verify_args}");
+        }
+        return;
+    }
 
     let data = drand::fetch(config.round).unwrap_or_else(|e| {
         eprintln!("error: {e}");
@@ -281,5 +414,32 @@ mod tests {
     #[test]
     fn shell_quote_with_single_quote() {
         assert_eq!(format::shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn parse_iso8601_utc() {
+        assert_eq!(parse_iso8601("2026-07-22T12:00:00Z").unwrap(), 1784721600);
+    }
+
+    #[test]
+    fn parse_iso8601_positive_offset() {
+        // +03:00 means local is 3h ahead, so UTC is 3h earlier
+        assert_eq!(
+            parse_iso8601("2026-07-22T12:00:00+03:00").unwrap(),
+            1784721600 - 3 * 3600
+        );
+    }
+
+    #[test]
+    fn parse_iso8601_negative_offset() {
+        assert_eq!(
+            parse_iso8601("2026-07-22T12:00:00-05:00").unwrap(),
+            1784721600 + 5 * 3600
+        );
+    }
+
+    #[test]
+    fn parse_iso8601_invalid() {
+        assert!(parse_iso8601("not-a-date").is_err());
     }
 }
