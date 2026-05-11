@@ -47,13 +47,13 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
             println!("  alea --round {} {}", r.round, verify_args(r));
             println!();
             println!("verify (bash/zsh):");
-            println!("  {}", oneliner_sh(r));
+            print_indented(&oneliner_sh(r));
             println!();
             println!("verify (fish):");
-            println!("  {}", oneliner_fish(r));
+            print_indented(&oneliner_fish(r));
             println!();
             println!("verify (PowerShell):");
-            println!("  {}", oneliner_ps(r));
+            print_indented(&oneliner_ps(r));
         }
         Output::Json => {
             #[derive(Serialize)]
@@ -90,29 +90,41 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
             println!("options\t{}", r.options.join("\t"));
         }
         Output::Sh => {
-            if !quiet {
+            if quiet {
+                println!("{}", oneliner_sh(r));
+            } else {
                 print_header(r, &timestamp);
                 println!();
                 println!("verify (bash/zsh):");
+                print_indented(&oneliner_sh(r));
             }
-            println!("  {}", oneliner_sh(r));
         }
         Output::Fish => {
-            if !quiet {
+            if quiet {
+                println!("{}", oneliner_fish(r));
+            } else {
                 print_header(r, &timestamp);
                 println!();
                 println!("verify (fish):");
+                print_indented(&oneliner_fish(r));
             }
-            println!("  {}", oneliner_fish(r));
         }
         Output::Ps => {
-            if !quiet {
+            if quiet {
+                println!("{}", oneliner_ps(r));
+            } else {
                 print_header(r, &timestamp);
                 println!();
                 println!("verify (PowerShell):");
+                print_indented(&oneliner_ps(r));
             }
-            println!("  {}", oneliner_ps(r));
         }
+    }
+}
+
+fn print_indented(s: &str) {
+    for line in s.lines() {
+        println!("  {line}");
     }
 }
 
@@ -142,10 +154,15 @@ fn verify_args(r: &SelectionResult) -> String {
     }
 }
 
+fn oneliner_comment(r: &SelectionResult) -> String {
+    format!("# alea {} --round {} => {}", verify_args(r), r.round, r.winner)
+}
+
 fn oneliner_sh(r: &SelectionResult) -> String {
     let quoted = quote_all(r.options, shell_quote);
     format!(
-        r#"opts=({quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${{r:0:8}}"); echo "${{opts[$((i % ${{#opts[@]}}))]}}""#,
+        "{}\nopts=({quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '\"randomness\":\"[^\"]*\"' | cut -d'\"' -f4); i=$(printf \"%d\" \"0x${{r:0:8}}\"); echo \"${{opts[$((i % ${{#opts[@]}}))]}}\"",
+        oneliner_comment(r),
         r.round
     )
 }
@@ -153,7 +170,8 @@ fn oneliner_sh(r: &SelectionResult) -> String {
 fn oneliner_fish(r: &SelectionResult) -> String {
     let quoted = quote_all(r.options, shell_quote);
     format!(
-        r#"set opts {quoted}; set r (curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); set i (printf "%d" "0x"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]"#,
+        "{}\nset opts {quoted}; set r (curl -s https://api.drand.sh/public/{} | grep -o '\"randomness\":\"[^\"]*\"' | cut -d'\"' -f4); set i (printf \"%d\" \"0x\"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]",
+        oneliner_comment(r),
         r.round
     )
 }
@@ -166,7 +184,8 @@ fn oneliner_ps(r: &SelectionResult) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        r#"$opts=@({quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#,
+        "{}\n$opts=@({quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]",
+        oneliner_comment(r),
         r.round
     )
 }
