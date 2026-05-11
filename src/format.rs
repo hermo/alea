@@ -24,19 +24,25 @@ pub struct SelectionResult<'a> {
     pub delimiter: Option<&'a str>,
 }
 
-pub fn render(r: &SelectionResult, output: &Output) {
+pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
     let timestamp = epoch_to_iso((drand::GENESIS_TIME + r.round * drand::PERIOD) as i64);
 
     match output {
         Output::Human => {
-            print_header(r, &timestamp);
-            println!();
-            println!("verify:");
-            println!("  alea --round {} {}", r.round, verify_args(r));
+            if quiet {
+                println!("{}", r.winner);
+            } else {
+                print_header(r, &timestamp);
+                println!();
+                println!("verify:");
+                println!("  alea --round {} {}", r.round, verify_args(r));
+            }
         }
         Output::All => {
-            print_header(r, &timestamp);
-            println!();
+            if !quiet {
+                print_header(r, &timestamp);
+                println!();
+            }
             println!("verify (alea):");
             println!("  alea --round {} {}", r.round, verify_args(r));
             println!();
@@ -84,21 +90,27 @@ pub fn render(r: &SelectionResult, output: &Output) {
             println!("options\t{}", r.options.join("\t"));
         }
         Output::Sh => {
-            print_header(r, &timestamp);
-            println!();
-            println!("verify (bash/zsh):");
+            if !quiet {
+                print_header(r, &timestamp);
+                println!();
+                println!("verify (bash/zsh):");
+            }
             println!("  {}", oneliner_sh(r));
         }
         Output::Fish => {
-            print_header(r, &timestamp);
-            println!();
-            println!("verify (fish):");
+            if !quiet {
+                print_header(r, &timestamp);
+                println!();
+                println!("verify (fish):");
+            }
             println!("  {}", oneliner_fish(r));
         }
         Output::Ps => {
-            print_header(r, &timestamp);
-            println!();
-            println!("verify (PowerShell):");
+            if !quiet {
+                print_header(r, &timestamp);
+                println!();
+                println!("verify (PowerShell):");
+            }
             println!("  {}", oneliner_ps(r));
         }
     }
@@ -172,7 +184,8 @@ pub fn print_usage() {
     eprintln!("  --round <N>       Use a specific drand round (for verification)");
     eprintln!("  -f, --file <path> Read options from a file");
     eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
-    eprintln!("  --all             Show all verification methods");
+    eprintln!("  -q, --quiet       Print only the result, no headers or labels
+  --all             Show all verification methods");
     eprintln!("  --json            Machine-readable JSON output");
     eprintln!("  --tsv             Tab-separated key/value output (grep/awk/cut friendly)");
     eprintln!("  --sh              Output bash/zsh verification oneliner");

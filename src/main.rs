@@ -14,6 +14,7 @@ struct Config {
     input_hash: Option<String>,
     file: Option<String>,
     delimiter: Option<String>,
+    quiet: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<Config, String> {
@@ -22,6 +23,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut options: Vec<String> = Vec::new();
     let mut file: Option<String> = None;
     let mut delimiter: Option<String> = None;
+    let mut quiet = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -39,6 +41,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 i += 1;
                 delimiter = Some(args.get(i).ok_or("--delimiter requires a value")?.clone());
             }
+            "--quiet" | "-q" => quiet = true,
             "--json" => output = Output::Json,
             "--tsv" => output = Output::Tsv,
             "--sh" => output = Output::Sh,
@@ -90,6 +93,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         input_hash,
         file,
         delimiter,
+        quiet,
     })
 }
 
@@ -144,7 +148,7 @@ fn main() {
         delimiter: config.delimiter.as_deref(),
     };
 
-    format::render(&result, &config.output);
+    format::render(&result, &config.output, config.quiet);
 }
 
 #[cfg(test)]
