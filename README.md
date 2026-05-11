@@ -90,7 +90,14 @@ alea --file menu.csv --delimiter ","
 alea --count 3 --file participants.txt
 ```
 
-When using `--file`, the output includes a SHA-256 hash of the input file so you can prove the options weren't modified after the fact.
+Use `-` to read from stdin:
+
+```sh
+alea --file -
+git log --format="%an" | sort -u | alea --file -
+```
+
+When using `--file`, the output includes a SHA-256 hash of the input so you can prove the options weren't modified after the fact. For stdin, the hash is shown but no verify command is printed — verification is left to you.
 
 ### Schedule a future draw
 

@@ -2,6 +2,7 @@ mod drand;
 mod format;
 
 use sha2::{Digest, Sha256};
+use std::io::{IsTerminal, Read};
 use std::{fs, process};
 
 use format::Output;
@@ -105,9 +106,24 @@ fn parse_args(args: &[String]) -> Result<RawArgs, String> {
 }
 
 fn resolve_config(raw: RawArgs) -> Result<Config, String> {
+    if raw.file.as_deref() == Some("-") && raw.at.is_some() {
+        return Err("--file - cannot be used with --at (stdin is ephemeral)".to_string());
+    }
+
     let mut options = raw.positional;
     let input_hash = if let Some(ref path) = raw.file {
-        let contents = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let contents = if path == "-" {
+            if std::io::stdin().is_terminal() {
+                return Err("--file - requires piped input (stdin is a terminal)".to_string());
+            }
+            let mut buf = Vec::new();
+            std::io::stdin()
+                .read_to_end(&mut buf)
+                .map_err(|e| format!("cannot read stdin: {e}"))?;
+            buf
+        } else {
+            fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?
+        };
         let hash = hex_sha256(&contents);
         let text =
             String::from_utf8(contents).map_err(|e| format!("file is not valid UTF-8: {e}"))?;

@@ -59,13 +59,15 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
                 }
             } else {
                 print_header(r, &timestamp);
-                println!();
-                println!("verify:");
-                println!(
-                    "  alea --round {} {}",
-                    r.round,
-                    verify_args(r.file, r.delimiter, r.options, r.count())
-                );
+                if r.file != Some("-") {
+                    println!();
+                    println!("verify:");
+                    println!(
+                        "  alea --round {} {}",
+                        r.round,
+                        verify_args(r.file, r.delimiter, r.options, r.count())
+                    );
+                }
             }
         }
         Output::All => {
