@@ -88,7 +88,7 @@ pub fn fetch(round: Option<u64>) -> Result<DrandResponse, String> {
                             );
                         }
                     }
-                    format!("drand request failed: timed out")
+                    "drand request failed: timed out".to_string()
                 }
                 _ => format!("drand request failed: {e}"),
             }
