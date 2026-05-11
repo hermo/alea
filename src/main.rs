@@ -18,10 +18,21 @@ struct Config {
     at_mode: bool,
 }
 
-fn parse_args(args: &[String]) -> Result<Config, String> {
+#[derive(Debug)]
+struct RawArgs {
+    round: Option<u64>,
+    output: Output,
+    positional: Vec<String>,
+    file: Option<String>,
+    delimiter: Option<String>,
+    quiet: bool,
+    at: Option<String>,
+}
+
+fn parse_args(args: &[String]) -> Result<RawArgs, String> {
     let mut round: Option<u64> = None;
     let mut output = Output::Human;
-    let mut options: Vec<String> = Vec::new();
+    let mut positional: Vec<String> = Vec::new();
     let mut file: Option<String> = None;
     let mut delimiter: Option<String> = None;
     let mut quiet = false;
@@ -43,11 +54,11 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 i += 1;
                 delimiter = Some(args.get(i).ok_or("--delimiter requires a value")?.clone());
             }
-            "--quiet" | "-q" => quiet = true,
             "--at" => {
                 i += 1;
                 at = Some(args.get(i).ok_or("--at requires a timestamp")?.clone());
             }
+            "--quiet" | "-q" => quiet = true,
             "--json" => output = Output::Json,
             "--tsv" => output = Output::Tsv,
             "--sh" => output = Output::Sh,
@@ -60,17 +71,34 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
                 process::exit(0);
             }
             s if s.starts_with('-') => return Err(format!("unknown flag: {s}")),
-            _ => options.push(args[i].clone()),
+            _ => positional.push(args[i].clone()),
         }
         i += 1;
     }
 
-    let input_hash = if let Some(ref path) = file {
+    if at.is_some() && round.is_some() {
+        return Err("--at and --round cannot be used together".to_string());
+    }
+
+    Ok(RawArgs {
+        round,
+        output,
+        positional,
+        file,
+        delimiter,
+        quiet,
+        at,
+    })
+}
+
+fn resolve_config(raw: RawArgs) -> Result<Config, String> {
+    let mut options = raw.positional;
+    let input_hash = if let Some(ref path) = raw.file {
         let contents = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
         let hash = hex_sha256(&contents);
         let text =
             String::from_utf8(contents).map_err(|e| format!("file is not valid UTF-8: {e}"))?;
-        let delim = delimiter.as_deref().unwrap_or("\n");
+        let delim = raw.delimiter.as_deref().unwrap_or("\n");
         options = text
             .split(delim)
             .map(|s| s.trim().to_string())
@@ -85,19 +113,22 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         return Err("at least 2 options required".to_string());
     }
 
-    if file.is_some() && matches!(output, Output::Sh | Output::Fish | Output::Ps | Output::All) {
+    if raw.file.is_some()
+        && matches!(
+            raw.output,
+            Output::Sh | Output::Fish | Output::Ps | Output::All
+        )
+    {
         return Err(
             "--sh/--fish/--ps/--all cannot be used with --file (use --json or --tsv instead)"
                 .to_string(),
         );
     }
 
-    if at.is_some() && round.is_some() {
-        return Err("--at and --round cannot be used together".to_string());
-    }
-
-    if let Some(ref ts) = at {
-        let epoch = parse_iso8601(ts)?;
+    let mut round = raw.round;
+    let at_mode = raw.at.is_some();
+    if let Some(ref ts) = raw.at {
+        let epoch = format::parse_iso8601(ts)?;
         if epoch <= drand::GENESIS_TIME {
             return Err("--at timestamp is before drand genesis".to_string());
         }
@@ -106,13 +137,13 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
 
     Ok(Config {
         round,
-        output,
+        output: raw.output,
         options,
         input_hash,
-        file,
-        delimiter,
-        quiet,
-        at_mode: at.is_some(),
+        file: raw.file,
+        delimiter: raw.delimiter,
+        quiet: raw.quiet,
+        at_mode,
     })
 }
 
@@ -132,84 +163,10 @@ pub fn hex_sha256(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Parse ISO 8601 timestamp (with timezone offset or Z) to unix epoch seconds.
-fn parse_iso8601(s: &str) -> Result<u64, String> {
-    // Supports: 2026-07-22T12:00:00Z, 2026-07-22T12:00:00+03:00, 2026-07-22T12:00:00-05:00
-    let err =
-        || format!("invalid timestamp: {s} (expected ISO 8601, e.g. 2026-07-22T12:00:00+03:00)");
-
-    let (datetime_str, offset_secs) = if let Some(stripped) = s.strip_suffix('Z') {
-        (stripped, 0i64)
-    } else if s.len() >= 6
-        && (s.as_bytes()[s.len() - 6] == b'+' || s.as_bytes()[s.len() - 6] == b'-')
-    {
-        let (dt, tz) = s.split_at(s.len() - 6);
-        let sign: i64 = if tz.starts_with('-') { -1 } else { 1 };
-        let h: i64 = tz[1..3].parse().map_err(|_| err())?;
-        let m: i64 = tz[4..6].parse().map_err(|_| err())?;
-        (dt, sign * (h * 3600 + m * 60))
-    } else {
-        return Err(err());
-    };
-
-    // Parse datetime: 2026-07-22T12:00:00
-    let parts: Vec<&str> = datetime_str.split('T').collect();
-    if parts.len() != 2 {
-        return Err(err());
-    }
-    let date_parts: Vec<u64> = parts[0]
-        .split('-')
-        .map(|p| p.parse().unwrap_or(0))
-        .collect();
-    let time_parts: Vec<u64> = parts[1]
-        .split(':')
-        .map(|p| p.parse().unwrap_or(0))
-        .collect();
-    if date_parts.len() != 3 || time_parts.len() != 3 {
-        return Err(err());
-    }
-
-    let (year, month, day) = (date_parts[0] as i64, date_parts[1], date_parts[2]);
-    let (hour, min, sec) = (time_parts[0], time_parts[1], time_parts[2]);
-
-    // Days from epoch to start of year
-    let mut days: i64 = 0;
-    for y in 1970..year {
-        days += if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
-            366
-        } else {
-            365
-        };
-    }
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let mdays: [i64; 12] = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    for d in &mdays[..month as usize - 1] {
-        days += d;
-    }
-    days += (day as i64) - 1;
-
-    let epoch =
-        days * 86400 + (hour as i64) * 3600 + (min as i64) * 60 + (sec as i64) - offset_secs;
-    Ok(epoch as u64)
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let config = parse_args(&args).unwrap_or_else(|e| {
+    let raw = parse_args(&args).unwrap_or_else(|e| {
         if e.is_empty() {
             format::print_usage();
             process::exit(0);
@@ -220,43 +177,15 @@ fn main() {
         process::exit(2);
     });
 
-    if config.at_mode {
-        let round = config.round.unwrap();
-        let timestamp = format::epoch_to_iso((drand::GENESIS_TIME + round * drand::PERIOD) as i64);
-        let verify_args = if let Some(ref file) = config.file {
-            let basename = std::path::Path::new(file.as_str())
-                .file_name()
-                .map(|f| f.to_string_lossy().into_owned())
-                .unwrap_or_else(|| file.clone());
-            let mut s = format!("--file {}", format::shell_quote(&basename));
-            if let Some(ref d) = config.delimiter {
-                s.push_str(&format!(" --delimiter {}", format::shell_quote(d)));
-            }
-            s
-        } else {
-            config
-                .options
-                .iter()
-                .map(|o| format::shell_quote(o))
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
+    let config = resolve_config(raw).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        eprintln!();
+        format::print_usage();
+        process::exit(2);
+    });
 
-        if config.quiet {
-            println!("alea --round {round} {verify_args}");
-        } else {
-            println!("Scheduled alea run:");
-            println!();
-            println!("round: {round}");
-            println!("time:  {timestamp}");
-            if let Some(ref hash) = config.input_hash {
-                println!("input: sha256:{hash}");
-            }
-            println!("count: {} options", config.options.len());
-            println!();
-            println!("run at the scheduled time:");
-            println!("  alea --round {round} {verify_args}");
-        }
+    if config.at_mode {
+        format::render_scheduled(&config.round.unwrap(), &config.options, config.input_hash.as_deref(), config.file.as_deref(), config.delimiter.as_deref(), config.quiet);
         return;
     }
 
@@ -312,10 +241,9 @@ mod tests {
     #[test]
     fn parse_args_basic() {
         let args: Vec<String> = vec!["Alice", "Bob"].into_iter().map(String::from).collect();
-        let config = parse_args(&args).unwrap();
-        assert_eq!(config.options, vec!["Alice", "Bob"]);
-        assert!(config.round.is_none());
-        assert!(config.input_hash.is_none());
+        let raw = parse_args(&args).unwrap();
+        assert_eq!(raw.positional, vec!["Alice", "Bob"]);
+        assert!(raw.round.is_none());
     }
 
     #[test]
@@ -324,15 +252,16 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let config = parse_args(&args).unwrap();
-        assert_eq!(config.round, Some(123));
-        assert_eq!(config.options, vec!["A", "B"]);
+        let raw = parse_args(&args).unwrap();
+        assert_eq!(raw.round, Some(123));
+        assert_eq!(raw.positional, vec!["A", "B"]);
     }
 
     #[test]
     fn parse_args_too_few_options() {
         let args: Vec<String> = vec!["only_one"].into_iter().map(String::from).collect();
-        assert!(parse_args(&args).is_err());
+        let raw = parse_args(&args).unwrap();
+        assert!(resolve_config(raw).is_err());
     }
 
     #[test]
@@ -362,7 +291,8 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let config = parse_args(&args).unwrap();
+        let raw = parse_args(&args).unwrap();
+        let config = resolve_config(raw).unwrap();
         assert_eq!(config.options, vec!["Alice", "Bob", "Charlie"]);
         assert!(config.input_hash.is_some());
         assert_eq!(config.input_hash.unwrap().len(), 64);
@@ -377,14 +307,14 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let config = parse_args(&args).unwrap();
+        let raw = parse_args(&args).unwrap();
+        let config = resolve_config(raw).unwrap();
         assert_eq!(config.options, vec!["Alice", "Bob", "Charlie"]);
         fs::remove_file(tmp).ok();
     }
 
     #[test]
     fn hex_sha256_known() {
-        // SHA-256 of empty string
         assert_eq!(
             hex_sha256(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -418,14 +348,16 @@ mod tests {
 
     #[test]
     fn parse_iso8601_utc() {
-        assert_eq!(parse_iso8601("2026-07-22T12:00:00Z").unwrap(), 1784721600);
+        assert_eq!(
+            format::parse_iso8601("2026-07-22T12:00:00Z").unwrap(),
+            1784721600
+        );
     }
 
     #[test]
     fn parse_iso8601_positive_offset() {
-        // +03:00 means local is 3h ahead, so UTC is 3h earlier
         assert_eq!(
-            parse_iso8601("2026-07-22T12:00:00+03:00").unwrap(),
+            format::parse_iso8601("2026-07-22T12:00:00+03:00").unwrap(),
             1784721600 - 3 * 3600
         );
     }
@@ -433,13 +365,13 @@ mod tests {
     #[test]
     fn parse_iso8601_negative_offset() {
         assert_eq!(
-            parse_iso8601("2026-07-22T12:00:00-05:00").unwrap(),
+            format::parse_iso8601("2026-07-22T12:00:00-05:00").unwrap(),
             1784721600 + 5 * 3600
         );
     }
 
     #[test]
     fn parse_iso8601_invalid() {
-        assert!(parse_iso8601("not-a-date").is_err());
+        assert!(format::parse_iso8601("not-a-date").is_err());
     }
 }
