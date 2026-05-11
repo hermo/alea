@@ -9,6 +9,9 @@ pub struct SelectionResult<'a> {
     pub index: usize,
     pub winner: &'a str,
     pub options: &'a [String],
+    pub input_hash: Option<&'a str>,
+    pub file: Option<&'a str>,
+    pub delimiter: Option<&'a str>,
 }
 
 const GENESIS_TIME: u64 = 1595431050;
@@ -19,13 +22,26 @@ pub fn render(r: &SelectionResult, output: &Output) {
 
     match output {
         Output::Human => {
-            let quoted = quote_all(r.options, shell_quote);
             println!("🎲 {}", r.winner);
             println!();
             println!("round: {}", r.round);
             println!("time:  {timestamp}");
+            if let Some(hash) = r.input_hash {
+                println!("input: sha256:{hash}");
+            }
             println!();
-            println!("verify: alea --round {} {quoted}", r.round);
+            let opts_part = if let Some(file) = r.file {
+                let basename = std::path::Path::new(file).file_name()
+                    .map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_string());
+                let mut s = format!("--file {}", shell_quote(&basename));
+                if let Some(d) = r.delimiter {
+                    s.push_str(&format!(" --delimiter {}", shell_quote(d)));
+                }
+                s
+            } else {
+                quote_all(r.options, shell_quote)
+            };
+            println!("verify: alea --round {} {opts_part}", r.round);
         }
         Output::Json => {
             #[derive(Serialize)]
@@ -36,6 +52,8 @@ pub fn render(r: &SelectionResult, output: &Output) {
                 winner: &'a str,
                 timestamp: &'a str,
                 options: &'a [String],
+                #[serde(skip_serializing_if = "Option::is_none")]
+                input_hash: Option<&'a str>,
             }
             let out = JsonOut {
                 round: r.round,
@@ -44,6 +62,7 @@ pub fn render(r: &SelectionResult, output: &Output) {
                 winner: r.winner,
                 timestamp: &timestamp,
                 options: r.options,
+                input_hash: r.input_hash,
             };
             println!("{}", serde_json::to_string(&out).unwrap());
         }
@@ -53,6 +72,9 @@ pub fn render(r: &SelectionResult, output: &Output) {
             println!("index\t{}", r.index);
             println!("winner\t{}", r.winner);
             println!("timestamp\t{timestamp}");
+            if let Some(hash) = r.input_hash {
+                println!("input_hash\t{hash}");
+            }
             println!("options\t{}", r.options.join("\t"));
         }
         Output::Sh => {
@@ -81,17 +103,20 @@ pub fn render(r: &SelectionResult, output: &Output) {
 
 pub fn print_usage() {
     eprintln!("Usage: alea [OPTIONS] <option1> <option2> [option3...]");
+    eprintln!("       alea [OPTIONS] --file <path> [--delimiter <delim>]");
     eprintln!();
     eprintln!("Verifiable random selection using drand public randomness.");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  --round <N>  Use a specific drand round (for verification)");
-    eprintln!("  --json       Machine-readable JSON output");
-    eprintln!("  --tsv        Tab-separated key/value output (grep/awk/cut friendly)");
-    eprintln!("  --sh         Output bash/zsh verification oneliner");
-    eprintln!("  --fish       Output fish verification oneliner");
-    eprintln!("  --ps         Output PowerShell verification oneliner");
-    eprintln!("  -h, --help   Show this help");
+    eprintln!("  --round <N>       Use a specific drand round (for verification)");
+    eprintln!("  -f, --file <path> Read options from a file");
+    eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
+    eprintln!("  --json            Machine-readable JSON output");
+    eprintln!("  --tsv             Tab-separated key/value output (grep/awk/cut friendly)");
+    eprintln!("  --sh              Output bash/zsh verification oneliner");
+    eprintln!("  --fish            Output fish verification oneliner");
+    eprintln!("  --ps              Output PowerShell verification oneliner");
+    eprintln!("  -h, --help        Show this help");
 }
 
 fn quote_all(options: &[String], quoter: fn(&str) -> String) -> String {
