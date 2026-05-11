@@ -45,7 +45,8 @@ alea pizza sushi tacos ramen
 round: 6102380
 time:  2026-05-11T12:27:30Z
 
-verify: alea --round 6102380 pizza sushi tacos ramen
+verify:
+  alea --round 6102380 pizza sushi tacos ramen
 ```
 
 ### Verify a past result
