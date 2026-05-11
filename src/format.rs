@@ -83,9 +83,24 @@ pub fn render(r: &SelectionResult, output: &Output) {
             }
             println!("options\t{}", r.options.join("\t"));
         }
-        Output::Sh => println!("{}", oneliner_sh(r)),
-        Output::Fish => println!("{}", oneliner_fish(r)),
-        Output::Ps => println!("{}", oneliner_ps(r)),
+        Output::Sh => {
+            print_header(r, &timestamp);
+            println!();
+            println!("verify (bash/zsh):");
+            println!("  {}", oneliner_sh(r));
+        }
+        Output::Fish => {
+            print_header(r, &timestamp);
+            println!();
+            println!("verify (fish):");
+            println!("  {}", oneliner_fish(r));
+        }
+        Output::Ps => {
+            print_header(r, &timestamp);
+            println!();
+            println!("verify (PowerShell):");
+            println!("  {}", oneliner_ps(r));
+        }
     }
 }
 
