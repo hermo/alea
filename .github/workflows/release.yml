@@ -56,6 +56,17 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
 
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${{ github.ref_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "error: tag ${{ github.ref_name }} does not match Cargo.toml version ${CARGO_VERSION}"
+            echo "Run: ./release.sh ${{ github.ref_name }}"
+            exit 1
+          fi
+
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
