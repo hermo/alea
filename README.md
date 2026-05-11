@@ -66,6 +66,28 @@ alea --file menu.csv --delimiter ","
 
 When using `--file`, the output includes a SHA-256 hash of the input file so you can prove the options weren't modified after the fact.
 
+### Schedule a future draw
+
+Pre-calculate the drand round for a specific time. Useful for raffles where you want to announce the parameters in advance:
+
+```sh
+alea --at '2026-07-22T12:00:00+03:00' --file participants.txt
+```
+
+```
+Scheduled alea run:
+
+round: 6309325
+time:  2026-07-22T09:00:00Z
+input: sha256:724f60bb74a1302049595da515add3092cffb0acec5649462e8d1d279d1ffd4d
+count: 4 options
+
+run at the scheduled time:
+  alea --round 6309325 --file participants.txt
+```
+
+Share the round number and file hash beforehand. When the time comes, run the command and everyone can verify the result.
+
 ### Quiet mode
 
 Print only the winner, no headers or labels — useful for scripting:
@@ -132,6 +154,7 @@ Usage: alea [OPTIONS] <option1> <option2> [option3...]
 
 Options:
   --round <N>           Use a specific drand round (for verification)
+  --at <TIMESTAMP>      Calculate round for a future time (ISO 8601)
   -f, --file <path>     Read options from a file
   -d, --delimiter <str> Split file by delimiter (default: newline)
   -q, --quiet           Print only the result, no headers or labels

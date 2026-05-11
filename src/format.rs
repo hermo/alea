@@ -210,6 +210,7 @@ pub fn print_usage() {
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --round <N>       Use a specific drand round (for verification)");
+    eprintln!("  --at <TIMESTAMP>  Calculate round for a future time (ISO 8601)");
     eprintln!("  -f, --file <path> Read options from a file");
     eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
     eprintln!(
