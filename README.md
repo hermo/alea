@@ -14,6 +14,21 @@ Every selection is tied to a specific drand round, meaning anyone can independen
 
 ## Install
 
+### Homebrew (macOS Apple Silicon, Linux x86_64)
+
+```sh
+brew tap hermo/tap
+brew install alea
+```
+
+### Shell installer
+
+```sh
+curl -sSf https://raw.githubusercontent.com/hermo/alea/main/install.sh | sh
+```
+
+### From source
+
 ```sh
 cargo install --path .
 ```
