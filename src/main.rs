@@ -1,19 +1,18 @@
-use serde::Deserialize;
+mod drand;
+mod format;
+
 use std::process;
 
-#[derive(Deserialize)]
-struct DrandResponse {
-    round: u64,
-    randomness: String,
+use format::Output;
+
+#[derive(Debug)]
+struct Config {
+    round: Option<u64>,
+    output: Output,
+    options: Vec<String>,
 }
 
-const GENESIS_TIME: u64 = 1595431050;
-const PERIOD: u64 = 30;
-
-enum Output { Human, Json, Tsv, Sh, Fish, Ps }
-
-fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut round: Option<u64> = None;
     let mut output = Output::Human;
     let mut options: Vec<String> = Vec::new();
@@ -23,154 +22,158 @@ fn main() {
         match args[i].as_str() {
             "--round" => {
                 i += 1;
-                round = Some(args.get(i).unwrap_or_else(|| {
-                    eprintln!("error: --round requires a value");
-                    process::exit(2);
-                }).parse().unwrap_or_else(|_| {
-                    eprintln!("error: invalid round number");
-                    process::exit(2);
-                }));
+                let val = args.get(i).ok_or("--round requires a value")?;
+                round = Some(val.parse().map_err(|_| "invalid round number")?);
             }
             "--json" => output = Output::Json,
             "--tsv" => output = Output::Tsv,
             "--sh" => output = Output::Sh,
             "--fish" => output = Output::Fish,
             "--ps" => output = Output::Ps,
-            "--help" | "-h" => {
-                print_usage();
-                process::exit(0);
-            }
-            s if s.starts_with('-') => {
-                eprintln!("error: unknown flag: {s}");
-                process::exit(2);
-            }
+            "--help" | "-h" => return Err(String::new()),
+            s if s.starts_with('-') => return Err(format!("unknown flag: {s}")),
             _ => options.push(args[i].clone()),
         }
         i += 1;
     }
 
     if options.len() < 2 {
-        eprintln!("error: at least 2 options required");
-        eprintln!();
-        print_usage();
-        process::exit(2);
+        return Err("at least 2 options required".to_string());
     }
 
-    let url = match round {
-        Some(r) => format!("https://api.drand.sh/public/{r}"),
-        None => "https://api.drand.sh/public/latest".to_string(),
+    Ok(Config { round, output, options })
+}
+
+/// Derive a selection index from hex randomness and option count.
+pub fn select(randomness: &str, count: usize) -> Result<usize, String> {
+    if randomness.len() < 8 {
+        return Err("randomness too short".to_string());
+    }
+    let val = u32::from_str_radix(&randomness[..8], 16)
+        .map_err(|e| format!("invalid randomness hex: {e}"))?;
+    Ok(val as usize % count)
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    let config = parse_args(&args).unwrap_or_else(|e| {
+        if e.is_empty() {
+            format::print_usage();
+            process::exit(0);
+        }
+        eprintln!("error: {e}");
+        eprintln!();
+        format::print_usage();
+        process::exit(2);
+    });
+
+    let data = drand::fetch(config.round).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
+
+    let index = select(&data.randomness, config.options.len()).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        process::exit(1);
+    });
+
+    let result = format::SelectionResult {
+        round: data.round,
+        randomness: &data.randomness,
+        index,
+        winner: &config.options[index],
+        options: &config.options,
     };
 
-    let body: String = ureq::get(&url).call().unwrap_or_else(|e| {
-        eprintln!("error: drand request failed: {e}");
-        process::exit(1);
-    }).into_body().read_to_string().unwrap_or_else(|e| {
-        eprintln!("error: failed to read response: {e}");
-        process::exit(1);
-    });
+    format::render(&result, &config.output);
+}
 
-    let data: DrandResponse = serde_json::from_str(&body).unwrap_or_else(|e| {
-        eprintln!("error: failed to parse drand response: {e}");
-        process::exit(1);
-    });
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let round = data.round;
-    let index = u32::from_str_radix(&data.randomness[..8], 16).unwrap_or_else(|e| {
-        eprintln!("error: failed to parse randomness: {e}");
-        process::exit(1);
-    }) as usize % options.len();
-    let winner = &options[index];
-    let timestamp = epoch_to_iso((GENESIS_TIME + round * PERIOD) as i64);
-
-    match output {
-        Output::Human => {
-            println!("🎲 {winner}");
-            println!();
-            println!("round: {round}");
-            println!("time:  {timestamp}");
-            println!();
-            let quoted: String = options.iter().map(|o| shell_quote(o)).collect::<Vec<_>>().join(" ");
-            println!("verify: alea --round {round} {quoted}");
-        }
-        Output::Json => {
-            println!(
-                r#"{{"round":{round},"randomness":"{}","index":{index},"winner":"{}","timestamp":"{timestamp}","options":[{}]}}"#,
-                data.randomness,
-                winner.replace('\\', "\\\\").replace('"', "\\\""),
-                options.iter().map(|o| format!("\"{}\"", o.replace('\\', "\\\\").replace('"', "\\\""))).collect::<Vec<_>>().join(",")
-            );
-        }
-        Output::Tsv => {
-            println!("round\t{round}");
-            println!("randomness\t{}", data.randomness);
-            println!("index\t{index}");
-            println!("winner\t{winner}");
-            println!("timestamp\t{timestamp}");
-            println!("options\t{}", options.join("\t"));
-        }
-        Output::Sh => {
-            let quoted: String = options.iter().map(|o| shell_quote(o)).collect::<Vec<_>>().join(" ");
-            println!(
-                r#"opts=({quoted}); r=$(curl -s https://api.drand.sh/public/{round} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${{r:0:8}}"); echo "${{opts[$((i % ${{#opts[@]}}))]}}""#
-            );
-        }
-        Output::Fish => {
-            let quoted: String = options.iter().map(|o| shell_quote(o)).collect::<Vec<_>>().join(" ");
-            println!(
-                r#"set opts {quoted}; set r (curl -s https://api.drand.sh/public/{round} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); set i (printf "%d" "0x"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]"#
-            );
-        }
-        Output::Ps => {
-            let quoted: String = options.iter().map(|o| ps_quote(o)).collect::<Vec<_>>().join(",");
-            println!(
-                r#"$opts=@({quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{round}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#
-            );
-        }
+    #[test]
+    fn select_deterministic() {
+        // 0x3b26244e = 992_478_286; 992_478_286 % 3 = 1
+        assert_eq!(select("3b26244efd679a692b8bff80fb16b74f", 3).unwrap(), 1);
     }
-}
 
-fn shell_quote(s: &str) -> String {
-    if s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/') {
-        s.to_string()
-    } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
+    #[test]
+    fn select_two_options() {
+        // 0xffffffff = 4_294_967_295; 4_294_967_295 % 2 = 1
+        assert_eq!(select("ffffffff0000000000000000", 2).unwrap(), 1);
+        // 0x00000000 = 0; 0 % 2 = 0
+        assert_eq!(select("000000000000000000000000", 2).unwrap(), 0);
     }
-}
 
-fn ps_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
-fn print_usage() {
-    eprintln!("Usage: alea [OPTIONS] <option1> <option2> [option3...]");
-    eprintln!();
-    eprintln!("Verifiable random selection using drand public randomness.");
-    eprintln!();
-    eprintln!("Options:");
-    eprintln!("  --round <N>  Use a specific drand round (for verification)");
-    eprintln!("  --json       Machine-readable JSON output");
-    eprintln!("  --tsv        Tab-separated key/value output (grep/awk/cut friendly)");
-    eprintln!("  --sh         Output bash/zsh verification oneliner");
-    eprintln!("  --fish       Output fish verification oneliner");
-    eprintln!("  --ps         Output PowerShell verification oneliner");
-    eprintln!("  -h, --help   Show this help");
-}
-
-fn epoch_to_iso(epoch: i64) -> String {
-    let days = epoch / 86400;
-    let rem = epoch % 86400;
-    let (h, m, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    let mut y = 1970i64;
-    let mut d = days;
-    loop {
-        let yd = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
-        if d < yd { break; }
-        d -= yd;
-        y += 1;
+    #[test]
+    fn select_error_on_short_hex() {
+        assert!(select("abc", 2).is_err());
     }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let mdays = [31, if leap {29} else {28}, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut mo = 0usize;
-    while mo < 12 && d >= mdays[mo] { d -= mdays[mo]; mo += 1; }
-    format!("{y:04}-{:02}-{:02}T{h:02}:{m:02}:{s:02}Z", mo + 1, d + 1)
+
+    #[test]
+    fn select_error_on_invalid_hex() {
+        assert!(select("zzzzzzzz00000000", 2).is_err());
+    }
+
+    #[test]
+    fn parse_args_basic() {
+        let args: Vec<String> = vec!["Alice", "Bob"].into_iter().map(String::from).collect();
+        let config = parse_args(&args).unwrap();
+        assert_eq!(config.options, vec!["Alice", "Bob"]);
+        assert!(config.round.is_none());
+    }
+
+    #[test]
+    fn parse_args_with_round() {
+        let args: Vec<String> = vec!["--round", "123", "A", "B"].into_iter().map(String::from).collect();
+        let config = parse_args(&args).unwrap();
+        assert_eq!(config.round, Some(123));
+        assert_eq!(config.options, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn parse_args_too_few_options() {
+        let args: Vec<String> = vec!["only_one"].into_iter().map(String::from).collect();
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn parse_args_unknown_flag() {
+        let args: Vec<String> = vec!["--bogus", "A", "B"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("unknown flag"));
+    }
+
+    #[test]
+    fn parse_args_round_missing_value() {
+        let args: Vec<String> = vec!["A", "B", "--round"].into_iter().map(String::from).collect();
+        assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn epoch_to_iso_known_value() {
+        assert_eq!(format::epoch_to_iso(1595431050), "2020-07-22T15:17:30Z");
+    }
+
+    #[test]
+    fn epoch_to_iso_epoch_zero() {
+        assert_eq!(format::epoch_to_iso(0), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn shell_quote_simple() {
+        assert_eq!(format::shell_quote("hello"), "hello");
+    }
+
+    #[test]
+    fn shell_quote_with_spaces() {
+        assert_eq!(format::shell_quote("hello world"), "'hello world'");
+    }
+
+    #[test]
+    fn shell_quote_with_single_quote() {
+        assert_eq!(format::shell_quote("it's"), "'it'\\''s'");
+    }
 }
