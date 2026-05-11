@@ -31,7 +31,8 @@ pub fn render(r: &SelectionResult, output: &Output) {
         Output::Human => {
             print_header(r, &timestamp);
             println!();
-            println!("verify: alea --round {} {}", r.round, verify_args(r));
+            println!("verify:");
+            println!("  alea --round {} {}", r.round, verify_args(r));
         }
         Output::All => {
             print_header(r, &timestamp);
