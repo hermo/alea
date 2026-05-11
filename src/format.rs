@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug)]
-pub enum Output { Human, Json, Tsv, Sh, Fish, Ps }
+pub enum Output { Human, All, Json, Tsv, Sh, Fish, Ps }
 
 pub struct SelectionResult<'a> {
     pub round: u64,
@@ -98,6 +98,50 @@ pub fn render(r: &SelectionResult, output: &Output) {
                 r.round
             );
         }
+        Output::All => {
+            let opts_part = if let Some(file) = r.file {
+                let basename = std::path::Path::new(file).file_name()
+                    .map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_string());
+                let mut s = format!("--file {}", shell_quote(&basename));
+                if let Some(d) = r.delimiter {
+                    s.push_str(&format!(" --delimiter {}", shell_quote(d)));
+                }
+                s
+            } else {
+                quote_all(r.options, shell_quote)
+            };
+            let sh_quoted = quote_all(r.options, shell_quote);
+            let ps_quoted = quote_all(r.options, ps_quote);
+
+            println!("🎲 {}", r.winner);
+            println!();
+            println!("round: {}", r.round);
+            println!("time:  {timestamp}");
+            if let Some(hash) = r.input_hash {
+                println!("input: sha256:{hash}");
+            }
+            println!();
+            println!("verify (alea):");
+            println!("  alea --round {} {opts_part}", r.round);
+            println!();
+            println!("verify (bash/zsh):");
+            println!(
+                r#"  opts=({sh_quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${{r:0:8}}"); echo "${{opts[$((i % ${{#opts[@]}}))]}}""#,
+                r.round
+            );
+            println!();
+            println!("verify (fish):");
+            println!(
+                r#"  set opts {sh_quoted}; set r (curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); set i (printf "%d" "0x"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]"#,
+                r.round
+            );
+            println!();
+            println!("verify (PowerShell):");
+            println!(
+                r#"  $opts=@({ps_quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#,
+                r.round
+            );
+        }
     }
 }
 
@@ -111,6 +155,7 @@ pub fn print_usage() {
     eprintln!("  --round <N>       Use a specific drand round (for verification)");
     eprintln!("  -f, --file <path> Read options from a file");
     eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
+    eprintln!("  --all             Show all verification methods");
     eprintln!("  --json            Machine-readable JSON output");
     eprintln!("  --tsv             Tab-separated key/value output (grep/awk/cut friendly)");
     eprintln!("  --sh              Output bash/zsh verification oneliner");

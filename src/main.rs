@@ -44,6 +44,7 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             "--sh" => output = Output::Sh,
             "--fish" => output = Output::Fish,
             "--ps" => output = Output::Ps,
+            "--all" => output = Output::All,
             "--help" | "-h" => return Err(String::new()),
             s if s.starts_with('-') => return Err(format!("unknown flag: {s}")),
             _ => options.push(args[i].clone()),
@@ -65,6 +66,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
 
     if options.len() < 2 {
         return Err("at least 2 options required".to_string());
+    }
+
+    if file.is_some() && matches!(output, Output::Sh | Output::Fish | Output::Ps | Output::All) {
+        return Err("--sh/--fish/--ps/--all cannot be used with --file (use --json or --tsv instead)".to_string());
     }
 
     Ok(Config { round, output, options, input_hash, file, delimiter })
