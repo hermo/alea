@@ -14,3 +14,4 @@ sha2 = "0.10"
 [profile.release]
 strip = true
 lto = true
+panic = "abort"
