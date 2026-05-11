@@ -89,7 +89,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - run: gh release edit "${{ github.ref_name }}" --draft=false --repo "${{ github.repository }}"
+      - run: gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
