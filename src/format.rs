@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::drand;
+
 #[derive(Debug)]
 pub enum Output { Human, All, Json, Tsv, Sh, Fish, Ps }
 
@@ -14,34 +16,29 @@ pub struct SelectionResult<'a> {
     pub delimiter: Option<&'a str>,
 }
 
-const GENESIS_TIME: u64 = 1595431050;
-const PERIOD: u64 = 30;
-
 pub fn render(r: &SelectionResult, output: &Output) {
-    let timestamp = epoch_to_iso((GENESIS_TIME + r.round * PERIOD) as i64);
+    let timestamp = epoch_to_iso((drand::GENESIS_TIME + r.round * drand::PERIOD) as i64);
 
     match output {
         Output::Human => {
-            println!("🎲 {}", r.winner);
+            print_header(r, &timestamp);
             println!();
-            println!("round: {}", r.round);
-            println!("time:  {timestamp}");
-            if let Some(hash) = r.input_hash {
-                println!("input: sha256:{hash}");
-            }
+            println!("verify: alea --round {} {}", r.round, verify_args(r));
+        }
+        Output::All => {
+            print_header(r, &timestamp);
             println!();
-            let opts_part = if let Some(file) = r.file {
-                let basename = std::path::Path::new(file).file_name()
-                    .map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_string());
-                let mut s = format!("--file {}", shell_quote(&basename));
-                if let Some(d) = r.delimiter {
-                    s.push_str(&format!(" --delimiter {}", shell_quote(d)));
-                }
-                s
-            } else {
-                quote_all(r.options, shell_quote)
-            };
-            println!("verify: alea --round {} {opts_part}", r.round);
+            println!("verify (alea):");
+            println!("  alea --round {} {}", r.round, verify_args(r));
+            println!();
+            println!("verify (bash/zsh):");
+            println!("  {}", oneliner_sh(r));
+            println!();
+            println!("verify (fish):");
+            println!("  {}", oneliner_fish(r));
+            println!();
+            println!("verify (PowerShell):");
+            println!("  {}", oneliner_ps(r));
         }
         Output::Json => {
             #[derive(Serialize)]
@@ -77,72 +74,60 @@ pub fn render(r: &SelectionResult, output: &Output) {
             }
             println!("options\t{}", r.options.join("\t"));
         }
-        Output::Sh => {
-            let quoted = quote_all(r.options, shell_quote);
-            println!(
-                r#"opts=({quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${{r:0:8}}"); echo "${{opts[$((i % ${{#opts[@]}}))]}}""#,
-                r.round
-            );
-        }
-        Output::Fish => {
-            let quoted = quote_all(r.options, shell_quote);
-            println!(
-                r#"set opts {quoted}; set r (curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); set i (printf "%d" "0x"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]"#,
-                r.round
-            );
-        }
-        Output::Ps => {
-            let quoted = quote_all(r.options, ps_quote);
-            println!(
-                r#"$opts=@({quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#,
-                r.round
-            );
-        }
-        Output::All => {
-            let opts_part = if let Some(file) = r.file {
-                let basename = std::path::Path::new(file).file_name()
-                    .map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_string());
-                let mut s = format!("--file {}", shell_quote(&basename));
-                if let Some(d) = r.delimiter {
-                    s.push_str(&format!(" --delimiter {}", shell_quote(d)));
-                }
-                s
-            } else {
-                quote_all(r.options, shell_quote)
-            };
-            let sh_quoted = quote_all(r.options, shell_quote);
-            let ps_quoted = quote_all(r.options, ps_quote);
-
-            println!("🎲 {}", r.winner);
-            println!();
-            println!("round: {}", r.round);
-            println!("time:  {timestamp}");
-            if let Some(hash) = r.input_hash {
-                println!("input: sha256:{hash}");
-            }
-            println!();
-            println!("verify (alea):");
-            println!("  alea --round {} {opts_part}", r.round);
-            println!();
-            println!("verify (bash/zsh):");
-            println!(
-                r#"  opts=({sh_quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${{r:0:8}}"); echo "${{opts[$((i % ${{#opts[@]}}))]}}""#,
-                r.round
-            );
-            println!();
-            println!("verify (fish):");
-            println!(
-                r#"  set opts {sh_quoted}; set r (curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); set i (printf "%d" "0x"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]"#,
-                r.round
-            );
-            println!();
-            println!("verify (PowerShell):");
-            println!(
-                r#"  $opts=@({ps_quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#,
-                r.round
-            );
-        }
+        Output::Sh => println!("{}", oneliner_sh(r)),
+        Output::Fish => println!("{}", oneliner_fish(r)),
+        Output::Ps => println!("{}", oneliner_ps(r)),
     }
+}
+
+fn print_header(r: &SelectionResult, timestamp: &str) {
+    println!("🎲 {}", r.winner);
+    println!();
+    println!("round: {}", r.round);
+    println!("time:  {timestamp}");
+    if let Some(hash) = r.input_hash {
+        println!("input: sha256:{hash}");
+    }
+}
+
+fn verify_args(r: &SelectionResult) -> String {
+    if let Some(file) = r.file {
+        let basename = std::path::Path::new(file)
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.to_string());
+        let mut s = format!("--file {}", shell_quote(&basename));
+        if let Some(d) = r.delimiter {
+            s.push_str(&format!(" --delimiter {}", shell_quote(d)));
+        }
+        s
+    } else {
+        quote_all(r.options, shell_quote)
+    }
+}
+
+fn oneliner_sh(r: &SelectionResult) -> String {
+    let quoted = quote_all(r.options, shell_quote);
+    format!(
+        r#"opts=({quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${{r:0:8}}"); echo "${{opts[$((i % ${{#opts[@]}}))]}}""#,
+        r.round
+    )
+}
+
+fn oneliner_fish(r: &SelectionResult) -> String {
+    let quoted = quote_all(r.options, shell_quote);
+    format!(
+        r#"set opts {quoted}; set r (curl -s https://api.drand.sh/public/{} | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); set i (printf "%d" "0x"(string sub -l 8 $r)); math (math $i % (count $opts)) + 1 | read idx; echo $opts[$idx]"#,
+        r.round
+    )
+}
+
+fn oneliner_ps(r: &SelectionResult) -> String {
+    let quoted = r.options.iter().map(|o| ps_quote(o)).collect::<Vec<_>>().join(",");
+    format!(
+        r#"$opts=@({quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#,
+        r.round
+    )
 }
 
 pub fn print_usage() {

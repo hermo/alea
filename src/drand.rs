@@ -1,5 +1,8 @@
 use serde::Deserialize;
 
+pub const GENESIS_TIME: u64 = 1595431050;
+pub const PERIOD: u64 = 30;
+
 const DRAND_BASE: &str = "https://api.drand.sh/public";
 
 #[derive(Deserialize)]
