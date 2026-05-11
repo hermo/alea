@@ -33,6 +33,8 @@ curl -sSf https://raw.githubusercontent.com/hermo/alea/main/install.sh | sh
 cargo install --path .
 ```
 
+Requires `libcurl` headers at build time (`libcurl4-openssl-dev` on Debian/Ubuntu, `curl` on macOS via Xcode).
+
 ## Usage
 
 ```sh
