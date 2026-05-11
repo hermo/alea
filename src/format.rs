@@ -16,12 +16,32 @@ pub enum Output {
 pub struct SelectionResult<'a> {
     pub round: u64,
     pub randomness: &'a str,
-    pub index: usize,
-    pub winner: &'a str,
+    pub selected: Vec<usize>,
     pub options: &'a [String],
     pub input_hash: Option<&'a str>,
     pub file: Option<&'a str>,
     pub delimiter: Option<&'a str>,
+}
+
+impl<'a> SelectionResult<'a> {
+    fn count(&self) -> usize {
+        self.selected.len()
+    }
+
+    fn winner(&self) -> &str {
+        &self.options[self.selected[0]]
+    }
+
+    fn first_index(&self) -> usize {
+        self.selected[0]
+    }
+
+    fn winners(&self) -> Vec<&str> {
+        self.selected
+            .iter()
+            .map(|&i| self.options[i].as_str())
+            .collect()
+    }
 }
 
 pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
@@ -30,7 +50,13 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
     match output {
         Output::Human => {
             if quiet {
-                println!("{}", r.winner);
+                if r.count() == 1 {
+                    println!("{}", r.winner());
+                } else {
+                    for w in r.winners() {
+                        println!("{w}");
+                    }
+                }
             } else {
                 print_header(r, &timestamp);
                 println!();
@@ -38,7 +64,7 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
                 println!(
                     "  alea --round {} {}",
                     r.round,
-                    verify_args(r.file, r.delimiter, r.options)
+                    verify_args(r.file, r.delimiter, r.options, r.count())
                 );
             }
         }
@@ -51,7 +77,7 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
             println!(
                 "  alea --round {} {}",
                 r.round,
-                verify_args(r.file, r.delimiter, r.options)
+                verify_args(r.file, r.delimiter, r.options, r.count())
             );
             println!();
             println!("verify (bash/zsh):");
@@ -68,18 +94,28 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
             struct JsonOut<'a> {
                 round: u64,
                 randomness: &'a str,
-                index: usize,
-                winner: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                index: Option<usize>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                winner: Option<&'a str>,
+                winners: Vec<&'a str>,
                 timestamp: &'a str,
                 options: &'a [String],
                 #[serde(skip_serializing_if = "Option::is_none")]
                 input_hash: Option<&'a str>,
             }
+            let winners = r.winners();
+            let (index, winner) = if r.count() == 1 {
+                (Some(r.first_index()), Some(r.winner()))
+            } else {
+                (None, None)
+            };
             let out = JsonOut {
                 round: r.round,
                 randomness: r.randomness,
-                index: r.index,
-                winner: r.winner,
+                index,
+                winner,
+                winners,
                 timestamp: &timestamp,
                 options: r.options,
                 input_hash: r.input_hash,
@@ -89,9 +125,15 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
         Output::Tsv => {
             println!("round\t{}", r.round);
             println!("randomness\t{}", r.randomness);
-            println!("index\t{}", r.index);
-            println!("winner\t{}", r.winner);
             println!("timestamp\t{timestamp}");
+            if r.count() == 1 {
+                println!("index\t{}", r.first_index());
+                println!("winner\t{}", r.winner());
+            } else {
+                for (rank, w) in r.winners().iter().enumerate() {
+                    println!("winner\t{}\t{w}", rank + 1);
+                }
+            }
             if let Some(hash) = r.input_hash {
                 println!("input_hash\t{hash}");
             }
@@ -130,30 +172,45 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
     }
 }
 
-pub fn render_scheduled(
-    round: &u64,
-    options: &[String],
-    input_hash: Option<&str>,
-    file: Option<&str>,
-    delimiter: Option<&str>,
-    quiet: bool,
-) {
-    let timestamp = round_to_iso(*round);
-    let args = verify_args(file, delimiter, options);
+pub struct ScheduledResult<'a> {
+    pub round: u64,
+    pub options: &'a [String],
+    pub input_hash: Option<&'a str>,
+    pub file: Option<&'a str>,
+    pub delimiter: Option<&'a str>,
+    pub count: usize,
+    pub past: bool,
+}
+
+pub fn render_scheduled(r: &ScheduledResult, quiet: bool) {
+    let round = r.round;
+    let timestamp = round_to_iso(round);
+    let args = verify_args(r.file, r.delimiter, r.options, r.count);
 
     if quiet {
         println!("alea --round {round} {args}");
     } else {
-        println!("Scheduled alea run:");
+        if r.past {
+            println!("Historical alea run:");
+        } else {
+            println!("Scheduled alea run:");
+        }
         println!();
         println!("round: {round}");
         println!("time:  {timestamp}");
-        if let Some(hash) = input_hash {
+        if let Some(hash) = r.input_hash {
             println!("input: sha256:{hash}");
         }
-        println!("count: {} options", options.len());
+        println!("count: {} options", r.options.len());
+        if r.count > 1 {
+            println!("picks: {}", r.count);
+        }
         println!();
-        println!("run at the scheduled time:");
+        if r.past {
+            println!("run now:");
+        } else {
+            println!("run at the scheduled time:");
+        }
         println!("  alea --round {round} {args}");
     }
 }
@@ -169,7 +226,17 @@ fn print_indented(s: &str) {
 }
 
 fn print_header(r: &SelectionResult, timestamp: &str) {
-    println!("\u{1f3b2} {}", r.winner);
+    if r.count() == 1 {
+        println!("\u{1f3b2} {}", r.winner());
+    } else {
+        for (rank, w) in r.winners().iter().enumerate() {
+            if rank == 0 {
+                println!("\u{1f3b2} {}. {w}", rank + 1);
+            } else {
+                println!("   {}. {w}", rank + 1);
+            }
+        }
+    }
     println!();
     println!("round: {}", r.round);
     println!("time:  {timestamp}");
@@ -178,19 +245,30 @@ fn print_header(r: &SelectionResult, timestamp: &str) {
     }
 }
 
-fn verify_args(file: Option<&str>, delimiter: Option<&str>, options: &[String]) -> String {
+fn verify_args(
+    file: Option<&str>,
+    delimiter: Option<&str>,
+    options: &[String],
+    count: usize,
+) -> String {
+    let count_prefix = if count > 1 {
+        format!("--count {count} ")
+    } else {
+        String::new()
+    };
+
     if let Some(f) = file {
         let basename = std::path::Path::new(f)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| f.to_string());
-        let mut s = format!("--file {}", shell_quote(&basename));
+        let mut s = format!("{count_prefix}--file {}", shell_quote(&basename));
         if let Some(d) = delimiter {
             s.push_str(&format!(" --delimiter {}", shell_quote(d)));
         }
         s
     } else {
-        quote_all(options, shell_quote)
+        format!("{count_prefix}{}", quote_all(options, shell_quote))
     }
 }
 
@@ -201,9 +279,9 @@ fn sanitize_comment(s: &str) -> String {
 fn oneliner_comment(r: &SelectionResult) -> String {
     format!(
         "# alea {} --round {} => {}",
-        sanitize_comment(&verify_args(r.file, r.delimiter, r.options)),
+        sanitize_comment(&verify_args(r.file, r.delimiter, r.options, r.count())),
         r.round,
-        sanitize_comment(r.winner)
+        sanitize_comment(r.winner())
     )
 }
 
@@ -253,6 +331,7 @@ pub fn print_usage() {
     eprintln!("  --at <TIMESTAMP>  Calculate round for a future time (ISO 8601)");
     eprintln!("  -f, --file <path> Read options from a file");
     eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
+    eprintln!("  -n, --count <N>   Pick N unique winners (default: 1, max: 8)");
     eprintln!("  -q, --quiet       Print only the result, no headers or labels");
     eprintln!("  --all             Show all verification methods");
     eprintln!("  --json            Machine-readable JSON output");
