@@ -46,6 +46,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             "--ps" => output = Output::Ps,
             "--all" => output = Output::All,
             "--help" | "-h" => return Err(String::new()),
+            "--version" | "-V" => {
+                eprintln!("alea {}", env!("CARGO_PKG_VERSION"));
+                process::exit(0);
+            }
             s if s.starts_with('-') => return Err(format!("unknown flag: {s}")),
             _ => options.push(args[i].clone()),
         }
@@ -53,12 +57,16 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     }
 
     let input_hash = if let Some(ref path) = file {
-        let contents = fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let contents = fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
         let hash = hex_sha256(&contents);
-        let text = String::from_utf8(contents)
-            .map_err(|e| format!("file is not valid UTF-8: {e}"))?;
+        let text =
+            String::from_utf8(contents).map_err(|e| format!("file is not valid UTF-8: {e}"))?;
         let delim = delimiter.as_deref().unwrap_or("\n");
-        options = text.split(delim).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        options = text
+            .split(delim)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
         Some(hash)
     } else {
         None
@@ -69,10 +77,20 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     }
 
     if file.is_some() && matches!(output, Output::Sh | Output::Fish | Output::Ps | Output::All) {
-        return Err("--sh/--fish/--ps/--all cannot be used with --file (use --json or --tsv instead)".to_string());
+        return Err(
+            "--sh/--fish/--ps/--all cannot be used with --file (use --json or --tsv instead)"
+                .to_string(),
+        );
     }
 
-    Ok(Config { round, output, options, input_hash, file, delimiter })
+    Ok(Config {
+        round,
+        output,
+        options,
+        input_hash,
+        file,
+        delimiter,
+    })
 }
 
 /// Derive a selection index from hex randomness and option count.
@@ -165,7 +183,10 @@ mod tests {
 
     #[test]
     fn parse_args_with_round() {
-        let args: Vec<String> = vec!["--round", "123", "A", "B"].into_iter().map(String::from).collect();
+        let args: Vec<String> = vec!["--round", "123", "A", "B"]
+            .into_iter()
+            .map(String::from)
+            .collect();
         let config = parse_args(&args).unwrap();
         assert_eq!(config.round, Some(123));
         assert_eq!(config.options, vec!["A", "B"]);
@@ -179,14 +200,20 @@ mod tests {
 
     #[test]
     fn parse_args_unknown_flag() {
-        let args: Vec<String> = vec!["--bogus", "A", "B"].into_iter().map(String::from).collect();
+        let args: Vec<String> = vec!["--bogus", "A", "B"]
+            .into_iter()
+            .map(String::from)
+            .collect();
         let err = parse_args(&args).unwrap_err();
         assert!(err.contains("unknown flag"));
     }
 
     #[test]
     fn parse_args_round_missing_value() {
-        let args: Vec<String> = vec!["A", "B", "--round"].into_iter().map(String::from).collect();
+        let args: Vec<String> = vec!["A", "B", "--round"]
+            .into_iter()
+            .map(String::from)
+            .collect();
         assert!(parse_args(&args).is_err());
     }
 
@@ -195,7 +222,9 @@ mod tests {
         let tmp = std::env::temp_dir().join("alea_test_input.txt");
         fs::write(&tmp, "Alice\nBob\nCharlie\n").unwrap();
         let args: Vec<String> = vec!["--file", tmp.to_str().unwrap()]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         let config = parse_args(&args).unwrap();
         assert_eq!(config.options, vec!["Alice", "Bob", "Charlie"]);
         assert!(config.input_hash.is_some());
@@ -208,7 +237,9 @@ mod tests {
         let tmp = std::env::temp_dir().join("alea_test_delim.txt");
         fs::write(&tmp, "Alice,Bob,Charlie").unwrap();
         let args: Vec<String> = vec!["--file", tmp.to_str().unwrap(), "-d", ","]
-            .into_iter().map(String::from).collect();
+            .into_iter()
+            .map(String::from)
+            .collect();
         let config = parse_args(&args).unwrap();
         assert_eq!(config.options, vec!["Alice", "Bob", "Charlie"]);
         fs::remove_file(tmp).ok();

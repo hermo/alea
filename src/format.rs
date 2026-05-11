@@ -3,7 +3,15 @@ use serde::Serialize;
 use crate::drand;
 
 #[derive(Debug)]
-pub enum Output { Human, All, Json, Tsv, Sh, Fish, Ps }
+pub enum Output {
+    Human,
+    All,
+    Json,
+    Tsv,
+    Sh,
+    Fish,
+    Ps,
+}
 
 pub struct SelectionResult<'a> {
     pub round: u64,
@@ -123,7 +131,12 @@ fn oneliner_fish(r: &SelectionResult) -> String {
 }
 
 fn oneliner_ps(r: &SelectionResult) -> String {
-    let quoted = r.options.iter().map(|o| ps_quote(o)).collect::<Vec<_>>().join(",");
+    let quoted = r
+        .options
+        .iter()
+        .map(|o| ps_quote(o))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         r#"$opts=@({quoted});$r=(Invoke-RestMethod https://api.drand.sh/public/{}).randomness;$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%$opts.Count]"#,
         r.round
@@ -131,10 +144,13 @@ fn oneliner_ps(r: &SelectionResult) -> String {
 }
 
 pub fn print_usage() {
+    eprintln!(
+        "alea {} — verifiable random selection using drand",
+        env!("CARGO_PKG_VERSION")
+    );
+    eprintln!();
     eprintln!("Usage: alea [OPTIONS] <option1> <option2> [option3...]");
     eprintln!("       alea [OPTIONS] --file <path> [--delimiter <delim>]");
-    eprintln!();
-    eprintln!("Verifiable random selection using drand public randomness.");
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --round <N>       Use a specific drand round (for verification)");
@@ -146,15 +162,22 @@ pub fn print_usage() {
     eprintln!("  --sh              Output bash/zsh verification oneliner");
     eprintln!("  --fish            Output fish verification oneliner");
     eprintln!("  --ps              Output PowerShell verification oneliner");
+    eprintln!("  -V, --version     Show version");
     eprintln!("  -h, --help        Show this help");
 }
 
 fn quote_all(options: &[String], quoter: fn(&str) -> String) -> String {
-    options.iter().map(|o| quoter(o)).collect::<Vec<_>>().join(" ")
+    options
+        .iter()
+        .map(|o| quoter(o))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn shell_quote(s: &str) -> String {
-    if s.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/') {
+    if s.chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/')
+    {
         s.to_string()
     } else {
         format!("'{}'", s.replace('\'', "'\\''"))
@@ -172,14 +195,36 @@ pub fn epoch_to_iso(epoch: i64) -> String {
     let mut y = 1970i64;
     let mut d = days;
     loop {
-        let yd = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
-        if d < yd { break; }
+        let yd = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
+            366
+        } else {
+            365
+        };
+        if d < yd {
+            break;
+        }
         d -= yd;
         y += 1;
     }
     let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let mdays = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mo = 0usize;
-    while mo < 12 && d >= mdays[mo] { d -= mdays[mo]; mo += 1; }
+    while mo < 12 && d >= mdays[mo] {
+        d -= mdays[mo];
+        mo += 1;
+    }
     format!("{y:04}-{:02}-{:02}T{h:02}:{m:02}:{s:02}Z", mo + 1, d + 1)
 }
