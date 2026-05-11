@@ -1,5 +1,6 @@
 mod drand;
 mod format;
+mod time;
 
 use sha2::{Digest, Sha256};
 use std::io::{IsTerminal, Read};
@@ -105,6 +106,34 @@ fn parse_args(args: &[String]) -> Result<RawArgs, String> {
     })
 }
 
+fn is_shell_output(output: &Output) -> bool {
+    matches!(output, Output::Sh | Output::Fish | Output::Ps | Output::All)
+}
+
+fn read_options(path: &str, delimiter: Option<&str>) -> Result<(Vec<String>, String), String> {
+    let contents = if path == "-" {
+        if std::io::stdin().is_terminal() {
+            return Err("--file - requires piped input (stdin is a terminal)".to_string());
+        }
+        let mut buf = Vec::new();
+        std::io::stdin()
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("cannot read stdin: {e}"))?;
+        buf
+    } else {
+        fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?
+    };
+    let hash = hex_sha256(&contents);
+    let text = String::from_utf8(contents).map_err(|e| format!("file is not valid UTF-8: {e}"))?;
+    let delim = delimiter.unwrap_or("\n");
+    let options = text
+        .split(delim)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    Ok((options, hash))
+}
+
 fn resolve_config(raw: RawArgs) -> Result<Config, String> {
     if raw.file.as_deref() == Some("-") && raw.at.is_some() {
         return Err("--file - cannot be used with --at (stdin is ephemeral)".to_string());
@@ -112,27 +141,8 @@ fn resolve_config(raw: RawArgs) -> Result<Config, String> {
 
     let mut options = raw.positional;
     let input_hash = if let Some(ref path) = raw.file {
-        let contents = if path == "-" {
-            if std::io::stdin().is_terminal() {
-                return Err("--file - requires piped input (stdin is a terminal)".to_string());
-            }
-            let mut buf = Vec::new();
-            std::io::stdin()
-                .read_to_end(&mut buf)
-                .map_err(|e| format!("cannot read stdin: {e}"))?;
-            buf
-        } else {
-            fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?
-        };
-        let hash = hex_sha256(&contents);
-        let text =
-            String::from_utf8(contents).map_err(|e| format!("file is not valid UTF-8: {e}"))?;
-        let delim = raw.delimiter.as_deref().unwrap_or("\n");
-        options = text
-            .split(delim)
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
+        let (opts, hash) = read_options(path, raw.delimiter.as_deref())?;
+        options = opts;
         Some(hash)
     } else {
         None
@@ -142,24 +152,14 @@ fn resolve_config(raw: RawArgs) -> Result<Config, String> {
         return Err("at least 2 options required".to_string());
     }
 
-    if raw.file.is_some()
-        && matches!(
-            raw.output,
-            Output::Sh | Output::Fish | Output::Ps | Output::All
-        )
-    {
+    if raw.file.is_some() && is_shell_output(&raw.output) {
         return Err(
             "--sh/--fish/--ps/--all cannot be used with --file (use --json or --tsv instead)"
                 .to_string(),
         );
     }
 
-    if raw.at.is_some()
-        && matches!(
-            raw.output,
-            Output::Sh | Output::Fish | Output::Ps | Output::All
-        )
-    {
+    if raw.at.is_some() && is_shell_output(&raw.output) {
         return Err(
             "--sh/--fish/--ps/--all cannot be used with --at (result is unknown until the draw; \
              use --round after the scheduled time)"
@@ -167,12 +167,7 @@ fn resolve_config(raw: RawArgs) -> Result<Config, String> {
         );
     }
 
-    if raw.count > 1
-        && matches!(
-            raw.output,
-            Output::Sh | Output::Fish | Output::Ps | Output::All
-        )
-    {
+    if raw.count > 1 && is_shell_output(&raw.output) {
         return Err(
             "--sh/--fish/--ps/--all cannot be used with --count > 1 (use --json or --tsv instead)"
                 .to_string(),
@@ -191,7 +186,7 @@ fn resolve_config(raw: RawArgs) -> Result<Config, String> {
     let at_mode = raw.at.is_some();
     let mut at_past = false;
     if let Some(ref ts) = raw.at {
-        let epoch = format::parse_iso8601(ts)?;
+        let epoch = time::parse_iso8601(ts)?;
         if epoch <= drand::GENESIS_TIME {
             return Err("--at timestamp is before drand genesis".to_string());
         }
@@ -491,12 +486,12 @@ mod tests {
 
     #[test]
     fn epoch_to_iso_known_value() {
-        assert_eq!(format::epoch_to_iso(1595431050), "2020-07-22T15:17:30Z");
+        assert_eq!(time::epoch_to_iso(1595431050), "2020-07-22T15:17:30Z");
     }
 
     #[test]
     fn epoch_to_iso_epoch_zero() {
-        assert_eq!(format::epoch_to_iso(0), "1970-01-01T00:00:00Z");
+        assert_eq!(time::epoch_to_iso(0), "1970-01-01T00:00:00Z");
     }
 
     #[test]
@@ -517,7 +512,7 @@ mod tests {
     #[test]
     fn parse_iso8601_utc() {
         assert_eq!(
-            format::parse_iso8601("2026-07-22T12:00:00Z").unwrap(),
+            time::parse_iso8601("2026-07-22T12:00:00Z").unwrap(),
             1784721600
         );
     }
@@ -525,7 +520,7 @@ mod tests {
     #[test]
     fn parse_iso8601_positive_offset() {
         assert_eq!(
-            format::parse_iso8601("2026-07-22T12:00:00+03:00").unwrap(),
+            time::parse_iso8601("2026-07-22T12:00:00+03:00").unwrap(),
             1784721600 - 3 * 3600
         );
     }
@@ -533,13 +528,13 @@ mod tests {
     #[test]
     fn parse_iso8601_negative_offset() {
         assert_eq!(
-            format::parse_iso8601("2026-07-22T12:00:00-05:00").unwrap(),
+            time::parse_iso8601("2026-07-22T12:00:00-05:00").unwrap(),
             1784721600 + 5 * 3600
         );
     }
 
     #[test]
     fn parse_iso8601_invalid() {
-        assert!(format::parse_iso8601("not-a-date").is_err());
+        assert!(time::parse_iso8601("not-a-date").is_err());
     }
 }
