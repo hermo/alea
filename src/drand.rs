@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use ureq::{config::Config, tls::{TlsConfig, TlsProvider}, Agent};
 
 pub const GENESIS_TIME: u64 = 1595431050;
 pub const PERIOD: u64 = 30;
@@ -17,7 +18,12 @@ pub fn fetch(round: Option<u64>) -> Result<DrandResponse, String> {
         None => format!("{DRAND_BASE}/latest"),
     };
 
-    let body = ureq::get(&url)
+    let agent: Agent = Config::builder()
+        .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).build())
+        .build()
+        .into();
+
+    let body = agent.get(&url)
         .call()
         .map_err(|e| format!("drand request failed: {e}"))?
         .into_body()
