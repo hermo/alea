@@ -154,8 +154,17 @@ fn verify_args(r: &SelectionResult) -> String {
     }
 }
 
+fn sanitize_comment(s: &str) -> String {
+    s.replace('\r', "\\r").replace('\n', "\\n")
+}
+
 fn oneliner_comment(r: &SelectionResult) -> String {
-    format!("# alea {} --round {} => {}", verify_args(r), r.round, r.winner)
+    format!(
+        "# alea {} --round {} => {}",
+        sanitize_comment(&verify_args(r)),
+        r.round,
+        sanitize_comment(r.winner)
+    )
 }
 
 fn oneliner_sh(r: &SelectionResult) -> String {
@@ -203,8 +212,10 @@ pub fn print_usage() {
     eprintln!("  --round <N>       Use a specific drand round (for verification)");
     eprintln!("  -f, --file <path> Read options from a file");
     eprintln!("  -d, --delimiter <str> Split file by delimiter (default: newline)");
-    eprintln!("  -q, --quiet       Print only the result, no headers or labels
-  --all             Show all verification methods");
+    eprintln!(
+        "  -q, --quiet       Print only the result, no headers or labels
+  --all             Show all verification methods"
+    );
     eprintln!("  --json            Machine-readable JSON output");
     eprintln!("  --tsv             Tab-separated key/value output (grep/awk/cut friendly)");
     eprintln!("  --sh              Output bash/zsh verification oneliner");
