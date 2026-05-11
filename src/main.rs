@@ -185,7 +185,14 @@ fn main() {
     });
 
     if config.at_mode {
-        format::render_scheduled(&config.round.unwrap(), &config.options, config.input_hash.as_deref(), config.file.as_deref(), config.delimiter.as_deref(), config.quiet);
+        format::render_scheduled(
+            &config.round.unwrap(),
+            &config.options,
+            config.input_hash.as_deref(),
+            config.file.as_deref(),
+            config.delimiter.as_deref(),
+            config.quiet,
+        );
         return;
     }
 

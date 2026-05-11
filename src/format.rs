@@ -35,7 +35,11 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
                 print_header(r, &timestamp);
                 println!();
                 println!("verify:");
-                println!("  alea --round {} {}", r.round, verify_args(r.file, r.delimiter, r.options));
+                println!(
+                    "  alea --round {} {}",
+                    r.round,
+                    verify_args(r.file, r.delimiter, r.options)
+                );
             }
         }
         Output::All => {
@@ -44,7 +48,11 @@ pub fn render(r: &SelectionResult, output: &Output, quiet: bool) {
                 println!();
             }
             println!("verify (alea):");
-            println!("  alea --round {} {}", r.round, verify_args(r.file, r.delimiter, r.options));
+            println!(
+                "  alea --round {} {}",
+                r.round,
+                verify_args(r.file, r.delimiter, r.options)
+            );
             println!();
             println!("verify (bash/zsh):");
             print_indented(&oneliner_sh(r));
