@@ -99,7 +99,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: mislav/bump-homebrew-formula-action@56a283fa15557e9abaa4bdb63b8212abc68e655c # ratchet:mislav/bump-homebrew-formula-action@v3
+      - uses: mislav/bump-homebrew-formula-action@ccf2332299a883f6af50a1d2d41e5df7904dd769 # ratchet:mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: alea
           homebrew-tap: hermo/homebrew-tap
