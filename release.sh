@@ -16,7 +16,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+awk -v ver="$VERSION" '{if(/^version = "/) print "version = \""ver"\""; else print}' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
 cargo update --workspace --quiet
 git add Cargo.toml Cargo.lock
 git commit -m "Bump version to ${TAG}"
