@@ -99,15 +99,52 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - uses: mislav/bump-homebrew-formula-action@56a283fa15557e9abaa4bdb63b8212abc68e655c # ratchet:mislav/bump-homebrew-formula-action@v3
-        with:
-          formula-name: alea
-          homebrew-tap: hermo/homebrew-tap
-          tag-name: ${{ github.ref_name }}
-          commit-message: "alea {{version}}"
+      - name: Update Homebrew formula
         env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          MAC_URL="https://github.com/hermo/alea/releases/download/${TAG}/alea-aarch64-apple-darwin.tar.gz"
+          LINUX_URL="https://github.com/hermo/alea/releases/download/${TAG}/alea-x86_64-unknown-linux-gnu.tar.gz"
+          MAC_SHA=$(curl -sL "$MAC_URL" | sha256sum | cut -d' ' -f1)
+          LINUX_SHA=$(curl -sL "$LINUX_URL" | sha256sum | cut -d' ' -f1)
+
+          FORMULA=$(cat <<EOF
+          class Alea < Formula
+            desc "Verifiable random selection using drand public randomness"
+            homepage "https://github.com/hermo/alea"
+            version "${VERSION}"
+            license "GPL-2.0-only"
+
+            on_macos do
+              on_arm do
+                url "${MAC_URL}"
+                sha256 "${MAC_SHA}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "${LINUX_URL}"
+                sha256 "${LINUX_SHA}"
+              end
+            end
+
+            def install
+              bin.install "alea"
+            end
+
+            test do
+              assert_match "at least 2 options required", shell_output("#{bin}/alea 2>&1", 2)
+            end
+          end
+          EOF
+          )
+
+          # Push updated formula to tap repo
+          gh api repos/hermo/homebrew-tap/contents/Formula/alea.rb \
+            --method PUT \
+            --field message="alea ${VERSION}" \
+            --field content="$(echo "$FORMULA" | base64 -w0)" \
+            --field sha="$(gh api repos/hermo/homebrew-tap/contents/Formula/alea.rb --jq .sha)"
