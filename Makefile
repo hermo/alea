@@ -48,6 +48,9 @@ clean:
 	rm -f $(TARGET) alea.com alea.com.dbg alea.aarch64.elf
 	rm -rf vendor/bearssl/obj vendor/bearssl/cosmo-obj $(BEARSSL_LIB)
 
+clean-app:
+	rm -f $(TARGET)
+
 install: $(TARGET)
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/
@@ -64,4 +67,4 @@ lint:
 debug:
 	$(MAKE) DEBUG=1
 
-.PHONY: all clean debug cosmo
+.PHONY: all clean clean-app debug cosmo
