@@ -21,19 +21,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev clang-tidy
 
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+      - run: make
 
-      - run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --locked
+      - run: make lint

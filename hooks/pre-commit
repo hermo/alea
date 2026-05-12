@@ -1,6 +1,5 @@
 #!/bin/sh
 set -e
 
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --locked --quiet
+make clean
+make

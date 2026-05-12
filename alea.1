@@ -1,0 +1,161 @@
+.TH ALEA 1 "2026-05-12" "alea 0.9.9" "User Commands"
+.SH NAME
+alea \- verifiable random selection using drand
+.SH SYNOPSIS
+.B alea
+.RI [ OPTIONS ]
+.I option1 option2
+.RI [ option3 .\|.\|.]
+.br
+.B alea
+.RI [ OPTIONS ]
+.B \-\-file
+.I path
+.RB [ \-\-delimiter
+.IR delim ]
+.SH DESCRIPTION
+.B alea
+makes random selections using the drand distributed randomness beacon.
+Every result is tied to a specific drand round and can be independently
+verified by anyone.
+.PP
+Given two or more options,
+.B alea
+fetches a randomness value from the drand network, computes an index from
+the first 8 hex characters (32 bits), and selects the winner as
+.IR index " % " option_count .
+.PP
+For multiple winners, each pick uses the next 8 hex characters and removes
+the chosen option from the pool before the next draw.
+.SH OPTIONS
+.TP
+.BI \-\-round " N"
+Use a specific drand round for verification. Mutually exclusive with
+.BR \-\-at .
+.TP
+.BI \-\-at " TIMESTAMP"
+Calculate the drand round for a specific time (ISO 8601 format).
+If the time is in the future, prints a scheduled run command.
+If in the past, prints a historical run command.
+.TP
+.BR \-f ", " \-\-file " " \fIpath\fR
+Read options from a file, one per line. Use
+.B \-
+to read from stdin.
+.TP
+.BR \-d ", " \-\-delimiter " " \fIstr\fR
+Split file input by
+.I str
+instead of newline.
+.TP
+.BR \-n ", " \-\-count " " \fIN\fR
+Pick
+.I N
+unique winners in ranked order. Maximum 8.
+.TP
+.BR \-q ", " \-\-quiet
+Print only the winner(s), no headers or metadata. Useful for scripting.
+.TP
+.B \-\-json
+Output results as JSON.
+.TP
+.B \-\-tsv
+Output results as tab-separated key/value pairs.
+.TP
+.B \-\-sh
+Show a bash/zsh verification oneliner. Single winner only.
+.TP
+.B \-\-fish
+Show a fish shell verification oneliner. Single winner only.
+.TP
+.B \-\-ps
+Show a PowerShell verification oneliner. Single winner only.
+.TP
+.B \-\-all
+Show all verification methods (alea, bash, fish, PowerShell).
+.TP
+.BR \-V ", " \-\-version
+Print version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print usage summary and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Runtime error (network failure, drand unavailable).
+.TP
+.B 2
+Usage error (invalid arguments, missing options).
+.SH EXAMPLES
+Pick a random lunch option:
+.PP
+.RS
+.nf
+$ alea pizza sushi tacos ramen
+.fi
+.RE
+.PP
+Verify a past result (same round + same options = same result):
+.PP
+.RS
+.nf
+$ alea \-\-round 6100001 pizza sushi tacos ramen
+.fi
+.RE
+.PP
+Pick 3 winners from a file:
+.PP
+.RS
+.nf
+$ alea \-\-count 3 \-\-file participants.txt
+.fi
+.RE
+.PP
+Schedule a future draw:
+.PP
+.RS
+.nf
+$ alea \-\-at \(aq2026-07-22T12:00:00+03:00\(aq \-\-count 3 \-\-file participants.txt
+.fi
+.RE
+.PP
+Quiet mode for scripting:
+.PP
+.RS
+.nf
+$ winner=$(alea \-\-quiet \-\-round 6100001 pizza sushi tacos)
+.fi
+.RE
+.PP
+Pipe git authors into a draw:
+.PP
+.RS
+.nf
+$ git log \-\-format="%an" | sort \-u | alea \-\-file \-
+.fi
+.RE
+.SH ALGORITHM
+The selection algorithm is intentionally simple so that anyone can verify
+a result by hand or with basic shell tools, without needing this program.
+.IP 1. 4
+Fetch randomness round from https://api.drand.sh/public
+.IP 2. 4
+Take first 8 hex characters of the randomness field (32 bits)
+.IP 3. 4
+Compute index = value % option_count
+.IP 4. 4
+For multiple winners, use next 8-char chunk and remove the winner from the pool
+.SH SEE ALSO
+.UR https://drand.love
+drand
+.UE ,
+.UR https://api.drand.sh
+drand API
+.UE
+.SH AUTHORS
+Mirko Grönroos
+.SH LICENSE
+GPL-2.0

@@ -16,9 +16,15 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-awk -v ver="$VERSION" '{if(/^version = "/) print "version = \""ver"\""; else print}' Cargo.toml > Cargo.toml.tmp && mv Cargo.toml.tmp Cargo.toml
-cargo update --workspace --quiet
-git add Cargo.toml Cargo.lock
+# Update version in main.c
+sed "s/^#define VERSION \".*\"/#define VERSION \"${VERSION}\"/" src/main.c > src/main.c.tmp && mv src/main.c.tmp src/main.c
+
+# Update version in man page
+sed "s/^\.TH ALEA 1 .*/.TH ALEA 1 \"$(date +%Y-%m-%d)\" \"alea ${VERSION}\" \"User Commands\"/" alea.1 > alea.1.tmp && mv alea.1.tmp alea.1
+
+make clean && make
+
+git add src/main.c alea.1
 git commit -m "Bump version to ${TAG}"
 git tag "${TAG}"
 git push origin main "${TAG}"
