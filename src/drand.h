@@ -6,6 +6,7 @@
 
 #define DRAND_GENESIS_TIME 1595431050ULL
 #define DRAND_PERIOD       30ULL
+#define DRAND_HOST         "api.drand.sh"
 #define DRAND_BASE_URL     "https://api.drand.sh/public"
 
 struct drand_response {

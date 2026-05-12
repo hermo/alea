@@ -11,7 +11,7 @@ int format_is_shell(enum output_mode mode)
     return mode == OUTPUT_SH || mode == OUTPUT_FISH || mode == OUTPUT_PS || mode == OUTPUT_ALL;
 }
 
-void format_shell_quote(const char *s, char *buf, size_t len)
+static void format_shell_quote(const char *s, char *buf, size_t len)
 {
     int needs_quote = 0;
     for (const char *p = s; *p; p++) {
@@ -57,7 +57,7 @@ static void ps_quote(const char *s, char *buf, size_t len)
     buf[pos] = '\0';
 }
 
-void format_print_verify_args(const struct selection_result *r)
+static void format_print_verify_args(const struct selection_result *r)
 {
     if (r->count > 1)
         printf("--count %zu ", r->count);
@@ -177,7 +177,7 @@ static void render_sh(const struct selection_result *r, const char *indent)
         format_shell_quote(r->options[i], quoted, sizeof(quoted));
         printf("%s%s", quoted, i < r->option_count - 1 ? " " : "");
     }
-    printf("); r=$(curl -s https://api.drand.sh/public/%llu"
+    printf("); r=$(curl -s " DRAND_BASE_URL "/%llu"
            " | grep -o '\"randomness\":\"[^\"]*\"' | cut -d'\"' -f4);"
            " i=$(printf \"%%d\" \"0x${r:0:8}\");"
            " echo \"${opts[@]:$((i %% ${#opts[@]})):1}\"\n",
@@ -194,7 +194,7 @@ static void render_fish(const struct selection_result *r, const char *indent)
         format_shell_quote(r->options[i], quoted, sizeof(quoted));
         printf("%s%s", quoted, i < r->option_count - 1 ? " " : "");
     }
-    printf("; set r (curl -s https://api.drand.sh/public/%llu"
+    printf("; set r (curl -s " DRAND_BASE_URL "/%llu"
            " | grep -o '\"randomness\":\"[^\"]*\"' | cut -d'\"' -f4);"
            " set i (printf \"%%d\" \"0x\"(string sub -l 8 $r));"
            " math (math $i %% (count $opts)) + 1 | read idx; echo $opts[$idx]\n",
@@ -211,9 +211,36 @@ static void render_ps(const struct selection_result *r, const char *indent)
         ps_quote(r->options[i], quoted, sizeof(quoted));
         printf("%s%s", quoted, i < r->option_count - 1 ? "," : "");
     }
-    printf(");$r=(Invoke-RestMethod https://api.drand.sh/public/%llu).randomness;"
+    printf(");$r=(Invoke-RestMethod " DRAND_BASE_URL "/%llu).randomness;"
            "$i=[Convert]::ToUInt32($r.Substring(0,8),16);$opts[$i%%$opts.Count]\n",
            (unsigned long long)r->round);
+}
+
+void format_render_scheduled(const struct selection_result *r, bool quiet, bool at_past)
+{
+    char timestamp[32];
+    epoch_to_iso(DRAND_GENESIS_TIME + r->round * DRAND_PERIOD, timestamp, sizeof(timestamp));
+
+    if (quiet) {
+        printf("alea --round %llu ", (unsigned long long)r->round);
+        format_print_verify_args(r);
+        printf("\n");
+        return;
+    }
+
+    printf("%s\n\n", at_past ? "Historical alea run:" : "Scheduled alea run:");
+    printf("round: %llu\n", (unsigned long long)r->round);
+    printf("time:  %s\n", timestamp);
+    if (r->input_hash)
+        printf("input: sha256:%s\n", r->input_hash);
+    printf("count: %zu options\n", r->option_count);
+    if (r->count > 1)
+        printf("picks: %zu\n", r->count);
+    printf("\n%s\n  alea --round %llu ",
+           at_past ? "run now:" : "run at the scheduled time:",
+           (unsigned long long)r->round);
+    format_print_verify_args(r);
+    printf("\n");
 }
 
 void format_render(const struct selection_result *r, enum output_mode mode, bool quiet)

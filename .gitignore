@@ -1,3 +1,8 @@
 alea
 *.o
 *.dSYM/
+/alea.aarch64.elf
+/alea.ape
+/alea.ape.dbg
+/alea.ape.aarch64.elf
+/alea.ape.com.dbg

@@ -19,22 +19,43 @@ Every selection is tied to a specific drand round, meaning anyone can
 independently verify the result wasn't tampered with. No trust required.
 Just math.
 
-## Build
+## Install
+
+**Download** — a single binary that runs on Linux, macOS, Windows, FreeBSD,
+OpenBSD and NetBSD, on x86-64 and ARM64:
+
+```sh
+curl -L https://github.com/hermo/alea/releases/latest/download/alea.ape -o alea
+chmod +x alea
+sudo mv alea /usr/local/bin/
+```
+
+**Homebrew** (macOS and Linux):
+
+```sh
+brew install hermo/tap/alea
+```
+
+**Build from source:**
 
 ```sh
 make
+sudo make install
 ```
 
 Requires `libcurl` and OpenSSL `libcrypto` headers:
 - macOS: `brew install openssl` (libcurl is already there)
 - Debian/Ubuntu: `apt install libcurl4-openssl-dev libssl-dev`
 
-## Install
+**Build the portable APE binary yourself:**
 
 ```sh
-sudo cp alea /usr/local/bin/
-sudo cp alea.1 /usr/local/share/man/man1/
+curl -L https://cosmo.zip/pub/cosmocc/cosmocc-4.0.2.zip -o /tmp/cosmocc.zip
+unzip /tmp/cosmocc.zip -d ~/cosmocc
+make ape COSMOCC=~/cosmocc/bin/cosmocc
 ```
+
+Produces `alea.ape` — runs everywhere without modification.
 
 ## Usage
 
@@ -169,6 +190,10 @@ party.
 
 No dependencies to rot. libcurl's ABI has been stable since 2006. This
 binary will build unchanged in 30 years.
+
+The portable download is built with [Cosmopolitan libc](https://justine.lol/cosmopolitan/)
+and bundles [BearSSL](https://bearssl.org/) for TLS — no runtime dependencies
+of any kind. One binary, every platform.
 
 ## License
 
