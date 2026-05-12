@@ -165,32 +165,6 @@ static void options_buf_free(struct options_buf *ob)
     }
 }
 
-static void print_scheduled(const struct selection_result *r, bool quiet, bool at_past)
-{
-    char timestamp[32];
-    epoch_to_iso(DRAND_GENESIS_TIME + r->round * DRAND_PERIOD, timestamp, sizeof(timestamp));
-
-    if (quiet) {
-        printf("alea --round %llu ", (unsigned long long)r->round);
-        format_print_verify_args(r);
-        printf("\n");
-        return;
-    }
-
-    printf("%s\n\n", at_past ? "Historical alea run:" : "Scheduled alea run:");
-    printf("round: %llu\n", (unsigned long long)r->round);
-    printf("time:  %s\n", timestamp);
-    if (r->input_hash)
-        printf("input: sha256:%s\n", r->input_hash);
-    printf("count: %zu options\n", r->option_count);
-    if (r->count > 1)
-        printf("picks: %zu\n", r->count);
-    printf("\n%s\n  alea --round %llu ",
-           at_past ? "run now:" : "run at the scheduled time:",
-           (unsigned long long)r->round);
-    format_print_verify_args(r);
-    printf("\n");
-}
 
 int main(int argc, char **argv)
 {
@@ -367,7 +341,7 @@ int main(int argc, char **argv)
 
     int rc;
     if (at_mode) {
-        print_scheduled(&result, quiet, at_past);
+        format_render_scheduled(&result, quiet, at_past);
         rc = 0;
     } else {
         /* Fetch drand */

@@ -30,11 +30,8 @@ struct selection_result {
 /* Render the full output for a completed selection. */
 void format_render(const struct selection_result *r, enum output_mode mode, bool quiet);
 
-/* Print the verify args portion (options or --file ...) to stdout. No trailing newline. */
-void format_print_verify_args(const struct selection_result *r);
-
-/* Shell-quote a string into buf. Safe for bash/zsh/fish. */
-void format_shell_quote(const char *s, char *buf, size_t len);
+/* Render output for a scheduled (--at) selection. */
+void format_render_scheduled(const struct selection_result *r, bool quiet, bool at_past);
 
 /* Returns non-zero if mode is a shell oneliner mode (sh/fish/ps/all). */
 int format_is_shell(enum output_mode mode);

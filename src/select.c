@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-int alea_select(const char *randomness, size_t count)
+static int alea_select(const char *randomness, size_t count)
 {
     if (strlen(randomness) < 8 || count == 0)
         return -1;
