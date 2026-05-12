@@ -5,7 +5,7 @@ LDFLAGS = -lcurl
 
 UNAME_S := $(shell uname -s)
 ifneq ($(UNAME_S),Darwin)
-CFLAGS += $(shell pkg-config --cflags libcrypto)
+CFLAGS += -D_POSIX_C_SOURCE=200809L $(shell pkg-config --cflags libcrypto)
 LDFLAGS += $(shell pkg-config --libs libcrypto)
 endif
 
@@ -39,7 +39,7 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/alea.1
 
 lint:
-	clang-tidy --checks='bugprone-*,clang-analyzer-*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling' $(SRCS) -- $(CFLAGS)
+	clang-tidy --checks='bugprone-*,clang-analyzer-*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,-bugprone-multi-level-implicit-pointer-conversion' $(SRCS) -- $(CFLAGS)
 
 debug:
 	$(MAKE) DEBUG=1

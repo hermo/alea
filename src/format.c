@@ -2,6 +2,7 @@
 #include "drand.h"
 #include "timeutil.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -215,7 +216,7 @@ static void render_ps(const struct selection_result *r, const char *indent)
            (unsigned long long)r->round);
 }
 
-void format_render(const struct selection_result *r, enum output_mode mode, int quiet)
+void format_render(const struct selection_result *r, enum output_mode mode, bool quiet)
 {
     char timestamp[32];
     epoch_to_iso(DRAND_GENESIS_TIME + r->round * DRAND_PERIOD, timestamp, sizeof(timestamp));

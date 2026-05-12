@@ -1,6 +1,6 @@
-#define _POSIX_C_SOURCE 200809L
 #include <errno.h>
 #include <getopt.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -156,7 +156,7 @@ static void options_buf_free(struct options_buf *ob)
     }
 }
 
-static void print_scheduled(const struct selection_result *r, int quiet, int at_past)
+static void print_scheduled(const struct selection_result *r, bool quiet, bool at_past)
 {
     char timestamp[32];
     epoch_to_iso(DRAND_GENESIS_TIME + r->round * DRAND_PERIOD, timestamp, sizeof(timestamp));
@@ -186,7 +186,7 @@ static void print_scheduled(const struct selection_result *r, int quiet, int at_
 int main(int argc, char **argv)
 {
     uint64_t round = 0;
-    int quiet = 0;
+    bool quiet = false;
     size_t count = 1;
     const char *file = NULL;
     const char *delimiter = NULL;
@@ -240,7 +240,7 @@ int main(int argc, char **argv)
         }
         case 'f': file = optarg; break;
         case 'd': delimiter = optarg; break;
-        case 'q': quiet = 1; break;
+        case 'q': quiet = true; break;
         case OPT_JSON: output = OUTPUT_JSON; break;
         case OPT_TSV:  output = OUTPUT_TSV; break;
         case OPT_SH:   output = OUTPUT_SH; break;
@@ -282,7 +282,7 @@ int main(int argc, char **argv)
     }
 
     /* Resolve --at to a round number */
-    int at_mode = 0, at_past = 0;
+    bool at_mode = false, at_past = false;
     if (at) {
         uint64_t epoch;
         if (parse_iso8601(at, &epoch) != 0) {
@@ -294,7 +294,7 @@ int main(int argc, char **argv)
             return 2;
         }
         round = (epoch - DRAND_GENESIS_TIME) / DRAND_PERIOD;
-        at_mode = 1;
+        at_mode = true;
         at_past = epoch <= drand_now_secs();
     }
 

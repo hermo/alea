@@ -1,6 +1,7 @@
 #ifndef FORMAT_H
 #define FORMAT_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -27,7 +28,7 @@ struct selection_result {
 };
 
 /* Render the full output for a completed selection. */
-void format_render(const struct selection_result *r, enum output_mode mode, int quiet);
+void format_render(const struct selection_result *r, enum output_mode mode, bool quiet);
 
 /* Print the verify args portion (options or --file ...) to stdout. No trailing newline. */
 void format_print_verify_args(const struct selection_result *r);
