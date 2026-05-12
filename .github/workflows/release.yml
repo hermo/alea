@@ -43,36 +43,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: |
-          rustup toolchain install stable --profile minimal
-          rustup target add ${{ matrix.target }}
-
-      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
 
       - name: Verify version matches tag
         run: |
           TAG_VERSION="${{ github.ref_name }}"
           TAG_VERSION="${TAG_VERSION#v}"
-          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
-            echo "error: tag ${{ github.ref_name }} does not match Cargo.toml version ${CARGO_VERSION}"
+          SRC_VERSION=$(grep '^#define VERSION' src/main.c | cut -d'"' -f2)
+          if [ "$TAG_VERSION" != "$SRC_VERSION" ]; then
+            echo "error: tag ${{ github.ref_name }} does not match VERSION in src/main.c (${SRC_VERSION})"
             echo "Run: ./release.sh ${{ github.ref_name }}"
             exit 1
           fi
 
       - name: Build
-        run: |
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
-          fi
-          cargo build --release --locked --target ${{ matrix.target }}
+        run: make
 
       - name: Package
         shell: bash
@@ -81,7 +68,8 @@ jobs:
           VERSION="${VERSION#v}"
           ARCHIVE="alea-${{ matrix.target }}.tar.gz"
           mkdir "alea-${VERSION}"
-          cp "target/${{ matrix.target }}/release/alea" "alea-${VERSION}/"
+          cp alea "alea-${VERSION}/"
+          cp alea.1 "alea-${VERSION}/"
           tar czf "${ARCHIVE}" "alea-${VERSION}"
           if command -v sha256sum &>/dev/null; then
             sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
@@ -148,6 +136,7 @@ jobs:
 
             def install
               bin.install "alea"
+              man1.install "alea.1"
             end
 
             test do
