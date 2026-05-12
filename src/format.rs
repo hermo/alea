@@ -290,7 +290,7 @@ fn oneliner_comment(r: &SelectionResult) -> String {
 fn oneliner_sh(r: &SelectionResult) -> String {
     let quoted = quote_all(r.options, shell_quote);
     format!(
-        "{}\nopts=({quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '\"randomness\":\"[^\"]*\"' | cut -d'\"' -f4); i=$(printf \"%d\" \"0x${{r:0:8}}\"); echo \"${{opts[$((i % ${{#opts[@]}}))]}}\"",
+        "{}\nopts=({quoted}); r=$(curl -s https://api.drand.sh/public/{} | grep -o '\"randomness\":\"[^\"]*\"' | cut -d'\"' -f4); i=$(printf \"%d\" \"0x${{r:0:8}}\"); echo \"${{opts[@]:$((i % ${{#opts[@]}})):1}}\"",
         oneliner_comment(r),
         r.round
     )

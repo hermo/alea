@@ -184,7 +184,7 @@ time:  2026-05-10T16:39:00Z
 
 verify (bash/zsh):
   # alea pizza sushi tacos --round 6100003 => pizza
-  opts=(pizza sushi tacos); r=$(curl -s https://api.drand.sh/public/6100003 | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${r:0:8}"); echo "${opts[$((i % ${#opts[@]}))]}"
+  opts=(pizza sushi tacos); r=$(curl -s https://api.drand.sh/public/6100003 | grep -o '"randomness":"[^"]*"' | cut -d'"' -f4); i=$(printf "%d" "0x${r:0:8}"); echo "${opts[@]:$((i % ${#opts[@]})):1}"
 ```
 
 Use `--fish` or `--ps` for the equivalent fish or PowerShell command. Use `--all` to show all variants at once.
