@@ -1,35 +1,11 @@
 #include "drand.h"
+#include "https.h"
 #include "json.h"
 
-#include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-struct buffer {
-    char *data;
-    size_t len;
-    size_t cap;
-};
-
-static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *userdata)
-{
-    struct buffer *buf = userdata;
-    size_t total = size * nmemb;
-    if (buf->len + total >= buf->cap) {
-        size_t newcap = (buf->cap + total) * 2;
-        char *tmp = realloc(buf->data, newcap);
-        if (!tmp)
-            return 0;
-        buf->data = tmp;
-        buf->cap = newcap;
-    }
-    memcpy(buf->data + buf->len, ptr, total);
-    buf->len += total;
-    buf->data[buf->len] = '\0';
-    return total;
-}
 
 uint64_t drand_now_secs(void)
 {
@@ -38,44 +14,20 @@ uint64_t drand_now_secs(void)
 
 int drand_fetch(uint64_t round, struct drand_response *out, char *errbuf, size_t errlen)
 {
-    char url[256];
+    char path[256];
     if (round > 0)
-        snprintf(url, sizeof(url), "%s/%llu", DRAND_BASE_URL, (unsigned long long)round);
+        snprintf(path, sizeof(path), "/public/%llu", (unsigned long long)round);
     else
-        snprintf(url, sizeof(url), "%s/latest", DRAND_BASE_URL);
+        snprintf(path, sizeof(path), "/public/latest");
 
-    struct buffer buf = { .data = malloc(4096), .len = 0, .cap = 4096 };
-    if (!buf.data) {
-        snprintf(errbuf, errlen, "out of memory");
+    char *body = NULL;
+    size_t body_len = 0;
+    int status = https_get(DRAND_HOST, path, &body, &body_len, errbuf, errlen);
+    if (status < 0)
         return -1;
-    }
-    buf.data[0] = '\0';
 
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        free(buf.data);
-        snprintf(errbuf, errlen, "curl init failed");
-        return -1;
-    }
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        snprintf(errbuf, errlen, "drand request failed: %s", curl_easy_strerror(res));
-        curl_easy_cleanup(curl);
-        free(buf.data);
-        return -1;
-    }
-
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-    curl_easy_cleanup(curl);
-
-    if (http_code == 425) {
+    if (status == 425) {
+        free(body);
         if (round > 0) {
             uint64_t available_at = DRAND_GENESIS_TIME + round * DRAND_PERIOD;
             uint64_t now = drand_now_secs();
@@ -93,31 +45,30 @@ int drand_fetch(uint64_t round, struct drand_response *out, char *errbuf, size_t
         } else {
             snprintf(errbuf, errlen, "drand request failed: HTTP 425");
         }
-        free(buf.data);
         return -1;
     }
 
-    if (http_code == 500 && round > 0) {
+    if (status == 500 && round > 0) {
         uint64_t available_at = DRAND_GENESIS_TIME + round * DRAND_PERIOD;
         uint64_t now = drand_now_secs();
         uint64_t diff = available_at > now ? available_at - now : now - available_at;
         if (diff <= DRAND_PERIOD) {
+            free(body);
             snprintf(errbuf, errlen,
                      "round %llu is not yet available -- it is being generated, try again in a moment",
                      (unsigned long long)round);
-            free(buf.data);
             return -1;
         }
     }
 
-    if (http_code != 200) {
-        snprintf(errbuf, errlen, "drand request failed: HTTP %ld", http_code);
-        free(buf.data);
+    if (status != 200) {
+        free(body);
+        snprintf(errbuf, errlen, "drand request failed: HTTP %d", status);
         return -1;
     }
 
-    struct json_value_s *root = json_parse(buf.data, buf.len);
-    free(buf.data);
+    struct json_value_s *root = json_parse(body, body_len);
+    free(body);
     if (!root) {
         snprintf(errbuf, errlen, "failed to parse drand response");
         return -1;
