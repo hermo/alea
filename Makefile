@@ -78,10 +78,16 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
 	rm -f $(DESTDIR)$(PREFIX)/share/man/man1/alea.1
 
+update-cas:
+	python3 scripts/gen-drand-cas.py
+
+check-cas:
+	python3 scripts/gen-drand-cas.py --check
+
 lint:
 	clang-tidy --checks='bugprone-*,clang-analyzer-*,-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,-bugprone-multi-level-implicit-pointer-conversion' $(SRCS) -- $(CFLAGS)
 
 debug:
 	$(MAKE) DEBUG=1
 
-.PHONY: all clean clean-app debug ape
+.PHONY: all clean clean-app debug ape update-cas check-cas
