@@ -6,15 +6,22 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <bearssl.h>
-
-#define SHA256_DIGEST_LENGTH 32
-#define SHA256(d, n, md) do { \
+#ifdef USE_BEARSSL
+#  include <bearssl.h>
+#  define SHA256_DIGEST_LENGTH 32
+#  define SHA256(d, n, md) do { \
     br_sha256_context _sha_ctx; \
     br_sha256_init(&_sha_ctx); \
     br_sha256_update(&_sha_ctx, (d), (n)); \
     br_sha256_out(&_sha_ctx, (md)); \
 } while (0)
+#elif defined(__APPLE__)
+#  include <CommonCrypto/CommonDigest.h>
+#  define SHA256_DIGEST_LENGTH CC_SHA256_DIGEST_LENGTH
+#  define SHA256(d, n, md)     CC_SHA256((d), (n), (md))
+#else
+#  include <openssl/sha.h>
+#endif
 
 #include "drand.h"
 #include "format.h"

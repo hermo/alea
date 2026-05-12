@@ -86,8 +86,58 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  build-ape:
+    needs: create-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      COSMOCC_VERSION: "4.0.2"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Cache cosmocc
+        id: cosmocc-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/cosmocc
+          key: cosmocc-${{ env.COSMOCC_VERSION }}
+
+      - name: Install cosmocc
+        if: steps.cosmocc-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://cosmo.zip/pub/cosmocc/cosmocc-${{ env.COSMOCC_VERSION }}.zip -o /tmp/cosmocc.zip
+          unzip -q /tmp/cosmocc.zip -d ~/cosmocc
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${{ github.ref_name }}"
+          TAG_VERSION="${TAG_VERSION#v}"
+          SRC_VERSION=$(grep '^#define VERSION' src/main.c | cut -d'"' -f2)
+          if [ "$TAG_VERSION" != "$SRC_VERSION" ]; then
+            echo "error: tag ${{ github.ref_name }} does not match VERSION in src/main.c (${SRC_VERSION})"
+            exit 1
+          fi
+
+      - name: Build APE
+        run: make ape COSMOCC=~/cosmocc/bin/cosmocc
+
+      - name: Checksum
+        run: sha256sum alea.ape > alea.ape.sha256
+
+      - name: Upload
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            alea.ape \
+            alea.ape.sha256 \
+            --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish-release:
-    needs: build
+    needs: [build, build-ape]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

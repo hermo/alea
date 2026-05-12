@@ -12,7 +12,74 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  build:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-curl
+            os: ubuntu-24.04
+            use_bearssl: false
+          - name: macos-curl
+            os: macos-14
+            use_bearssl: false
+          - name: linux-bearssl
+            os: ubuntu-24.04
+            use_bearssl: true
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies (Linux curl)
+        if: matrix.name == 'linux-curl'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.use_bearssl }}" = "true" ]; then
+            make USE_BEARSSL=1
+          else
+            make
+          fi
+
+      - name: Smoke test
+        run: ./alea --version
+
+  build-ape:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      COSMOCC_VERSION: "4.0.2"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Cache cosmocc
+        id: cosmocc-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/cosmocc
+          key: cosmocc-${{ env.COSMOCC_VERSION }}
+
+      - name: Install cosmocc
+        if: steps.cosmocc-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://cosmo.zip/pub/cosmocc/cosmocc-${{ env.COSMOCC_VERSION }}.zip -o /tmp/cosmocc.zip
+          unzip -q /tmp/cosmocc.zip -d ~/cosmocc
+
+      - name: Build APE
+        run: make ape COSMOCC=~/cosmocc/bin/cosmocc
+
+      - name: Smoke test
+        run: ./alea.ape --version
+
+  lint:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -22,7 +89,5 @@ jobs:
           persist-credentials: false
 
       - run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev clang-tidy
-
-      - run: make
 
       - run: make lint
