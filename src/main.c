@@ -28,7 +28,7 @@
 #include "select.h"
 #include "timeutil.h"
 
-#define VERSION "0.9.11"
+#define VERSION "0.9.12"
 #define MAX_WINNERS 8
 
 static void usage(void)
