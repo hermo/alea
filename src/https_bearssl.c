@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -72,9 +73,23 @@ int https_get(const char *host, const char *path,
 
     br_ssl_client_init_full(&sc, &xc, TAs, TAs_NUM);
     br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof iobuf, 1);
+
+    /* Cosmopolitan's getrandom() wrapper is unreliable on some platforms;
+       seed BearSSL's PRNG explicitly from /dev/urandom to avoid BR_ERR_NO_RANDOM. */
+    {
+        unsigned char seed[32];
+        int rfd = open("/dev/urandom", O_RDONLY);
+        if (rfd >= 0) {
+            read(rfd, seed, sizeof seed);
+            close(rfd);
+            br_ssl_engine_inject_entropy(&sc.eng, seed, sizeof seed);
+        }
+    }
+
     if (!br_ssl_client_reset(&sc, host, 0)) {
         close(fd);
-        snprintf(errbuf, errlen, "TLS reset failed");
+        snprintf(errbuf, errlen, "TLS reset failed (err=%d)",
+                 br_ssl_engine_last_error(&sc.eng));
         return -1;
     }
 
